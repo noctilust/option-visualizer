@@ -1,6 +1,7 @@
-import React from 'react';
+import React, { useRef } from 'react';
 
 const InputSection = ({ credit, setCredit, isDebit, setIsDebit }) => {
+    const ignoreMouseUp = useRef(false);
     return (
         <div className="w-full max-w-xl mx-auto">
             <div className="flex space-x-4 mb-4">
@@ -35,10 +36,20 @@ const InputSection = ({ credit, setCredit, isDebit, setIsDebit }) => {
                     type="number"
                     name="credit"
                     id="credit"
-                    className="block w-full pl-7 pr-12 py-3 sm:text-sm border-border rounded-md bg-card text-foreground focus:ring-primary focus:border-primary shadow-sm"
+                    className="block w-full pl-7 pr-12 py-3 sm:text-sm border-border rounded-md bg-card text-foreground focus:ring-primary focus:border-primary shadow-sm selection:bg-blue-500 selection:text-white"
                     placeholder="0.00"
                     value={credit}
                     onChange={(e) => setCredit(e.target.value)}
+                    onFocus={(e) => {
+                        e.target.select();
+                        ignoreMouseUp.current = true;
+                    }}
+                    onMouseUp={(e) => {
+                        if (ignoreMouseUp.current) {
+                            e.preventDefault();
+                            ignoreMouseUp.current = false;
+                        }
+                    }}
                 />
                 <div className="absolute inset-y-0 right-0 pr-3 flex items-center pointer-events-none">
                     <span className="text-muted-foreground sm:text-sm">USD</span>

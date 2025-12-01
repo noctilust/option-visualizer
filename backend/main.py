@@ -1,9 +1,9 @@
 from fastapi import FastAPI, UploadFile, File, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel
 from typing import List, Optional
 import ocr
 import calculator
+from schemas import Position, CalculateRequest
 
 app = FastAPI()
 
@@ -20,15 +20,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-class Position(BaseModel):
-    qty: int
-    expiration: str
-    strike: float
-    type: str # "C" or "P"
 
-class CalculateRequest(BaseModel):
-    positions: List[Position]
-    credit: float
 
 @app.get("/")
 def read_root():

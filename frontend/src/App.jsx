@@ -2,7 +2,8 @@ import React, { useState, useEffect, useMemo } from 'react';
 import UploadSection from './components/UploadSection';
 import InputSection from './components/InputSection';
 import PositionsTable from './components/PositionsTable';
-import { AreaChart, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, ReferenceLine, Area } from 'recharts';
+import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, ReferenceLine, ReferenceDot, Brush } from 'recharts';
+import { Plus, Minus, RotateCcw } from 'lucide-react';
 
 function App() {
   const [file, setFile] = useState(null);
@@ -12,10 +13,70 @@ function App() {
   const [chartData, setChartData] = useState([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
+  const [zoomRange, setZoomRange] = useState({ startIndex: 0, endIndex: 0 });
+
+  // Expose mock data loader for testing
+  useEffect(() => {
+    window.loadMockData = () => {
+      setFile({ name: 'ORCL 1750 cr.png', size: 20000 }); // Mock file object
+      setPositions([
+        { qty: -2, expiration: 'Dec 19', strike: 240, type: 'P' },
+        { qty: -2, expiration: 'Dec 19', strike: 240, type: 'C' }
+      ]);
+      setCredit('1750');
+      setIsDebit(false);
+      console.log('Mock data loaded');
+    };
+  }, []);
+
+  // Reset zoom when chart data changes, with smart default based on profit zone
+  useEffect(() => {
+    if (chartData.length > 0) {
+      // Find profit zone indices
+      const firstProfitIndex = chartData.findIndex(d => d.pl > 0);
+      const lastProfitIndex = chartData.findLastIndex(d => d.pl > 0);
+
+      if (firstProfitIndex !== -1 && lastProfitIndex !== -1) {
+        const profitWidth = lastProfitIndex - firstProfitIndex;
+        const padding = Math.floor(profitWidth * 0.5); // 50% padding on each side
+
+        const startIndex = Math.max(0, firstProfitIndex - padding);
+        const endIndex = Math.min(chartData.length - 1, lastProfitIndex + padding);
+
+        setZoomRange({ startIndex, endIndex });
+      } else if (positions.length > 0) {
+        // Fallback to strike-based zoom if no profit zone (e.g., all loss)
+        const strikes = positions.map(p => p.strike);
+        const minStrike = Math.min(...strikes);
+        const maxStrike = Math.max(...strikes);
+
+        // Tighter buffer for fallback
+        const lowerBound = minStrike * 0.9;
+        const upperBound = maxStrike * 1.1;
+
+        const startIndex = chartData.findIndex(d => d.price >= lowerBound);
+        const endIndex = chartData.findIndex(d => d.price >= upperBound);
+
+        setZoomRange({
+          startIndex: startIndex !== -1 ? startIndex : 0,
+          endIndex: endIndex !== -1 ? endIndex : chartData.length - 1
+        });
+      } else {
+        setZoomRange({ startIndex: 0, endIndex: chartData.length - 1 });
+      }
+    }
+  }, [chartData, positions]);
 
   const xAxisTicks = useMemo(() => {
     if (!chartData.length) return [];
-    const prices = chartData.map(d => d.price);
+
+    const start = zoomRange.startIndex;
+    const end = zoomRange.endIndex || chartData.length - 1;
+    const visibleData = chartData.slice(start, end + 1);
+
+    if (!visibleData.length) return [];
+
+    const prices = visibleData.map(d => d.price);
     const minPrice = Math.min(...prices);
     const maxPrice = Math.max(...prices);
 
@@ -33,15 +94,15 @@ function App() {
     else if (normalized < 7.5) interval = 5 * magnitude;
     else interval = 10 * magnitude;
 
-    const start = Math.floor(minPrice / interval) * interval;
-    const end = Math.ceil(maxPrice / interval) * interval;
+    const startTick = Math.floor(minPrice / interval) * interval;
+    const endTick = Math.ceil(maxPrice / interval) * interval;
 
     const ticks = [];
-    for (let p = start; p <= end; p += interval) {
+    for (let p = startTick; p <= endTick; p += interval) {
       ticks.push(p);
     }
     return ticks;
-  }, [chartData]);
+  }, [chartData, zoomRange]);
 
   const handleFileSelect = async (selectedFile) => {
     setFile(selectedFile);
@@ -112,8 +173,65 @@ function App() {
     return () => clearTimeout(timeoutId);
   }, [positions, credit, isDebit]);
 
+  const breakevenPoints = useMemo(() => {
+    if (!chartData.length) return [];
+    const points = [];
+    for (let i = 0; i < chartData.length - 1; i++) {
+      const p1 = chartData[i];
+      const p2 = chartData[i + 1];
+      if ((p1.pl >= 0 && p2.pl < 0) || (p1.pl < 0 && p2.pl >= 0)) {
+        // Linear interpolation for more accurate x position
+        const x = p1.price + (p2.price - p1.price) * ((0 - p1.pl) / (p2.pl - p1.pl));
+        points.push({ x, y: 0 });
+      }
+    }
+    return points;
+  }, [chartData]);
+
+  const handleStartOver = () => {
+    setFile(null);
+    setCredit('');
+    setIsDebit(false);
+    setPositions([]);
+    setChartData([]);
+    setError(null);
+  };
+
+  const handleZoomIn = () => {
+    const { startIndex, endIndex } = zoomRange;
+    const range = endIndex - startIndex;
+    if (range <= 2) return; // Prevent zooming in too much
+
+    const zoomFactor = Math.floor(range * 0.1) || 1; // Zoom in by 10% or at least 1 step
+    const newStart = Math.min(startIndex + zoomFactor, endIndex - 2);
+    const newEnd = Math.max(endIndex - zoomFactor, startIndex + 2);
+
+    setZoomRange({ startIndex: newStart, endIndex: newEnd });
+  };
+
+  const handleZoomOut = () => {
+    const { startIndex, endIndex } = zoomRange;
+    const totalPoints = chartData.length;
+    const range = endIndex - startIndex;
+
+    // If already fully zoomed out, do nothing
+    if (startIndex === 0 && endIndex === totalPoints - 1) return;
+
+    const zoomFactor = Math.floor(range * 0.1) || 1; // Zoom out by 10%
+    const newStart = Math.max(0, startIndex - zoomFactor);
+    const newEnd = Math.min(totalPoints - 1, endIndex + zoomFactor);
+
+    setZoomRange({ startIndex: newStart, endIndex: newEnd });
+  };
+
+  const handleResetZoom = () => {
+    if (chartData.length > 0) {
+      setZoomRange({ startIndex: 0, endIndex: chartData.length - 1 });
+    }
+  };
+
   return (
-    <div className="min-h-screen bg-background text-foreground font-sans selection:bg-primary/20">
+    <div className="min-h-screen bg-background text-foreground font-sans selection:bg-primary selection:text-primary-foreground">
       <div className="max-w-5xl mx-auto px-4 py-12">
         <header className="text-center mb-12">
           <h1 className="text-4xl font-extrabold tracking-tight lg:text-5xl mb-4 bg-gradient-to-r from-primary to-blue-600 bg-clip-text text-transparent">
@@ -133,21 +251,32 @@ function App() {
           </div>
 
           {positions.length > 0 && (
-            <div className="bg-card border border-border rounded-xl shadow-sm p-4 md:p-5">
-              <h2 className="text-xl font-semibold mb-4">2. Verify Positions</h2>
-              <PositionsTable positions={positions} setPositions={setPositions} />
-            </div>
+            <>
+              <div className="bg-card border border-border rounded-xl shadow-sm p-4 md:p-5 animate-in fade-in slide-in-from-bottom-4 duration-500">
+                <h2 className="text-xl font-semibold mb-4">2. Verify Positions</h2>
+                <PositionsTable positions={positions} setPositions={setPositions} />
+              </div>
+
+              <div className="bg-card border border-border rounded-xl shadow-sm p-4 md:p-5 animate-in fade-in slide-in-from-bottom-4 duration-500 delay-150">
+                <h2 className="text-xl font-semibold mb-4">3. Enter Amount</h2>
+                <InputSection credit={credit} setCredit={setCredit} isDebit={isDebit} setIsDebit={setIsDebit} />
+              </div>
+            </>
           )}
 
-          <div className="bg-card border border-border rounded-xl shadow-sm p-4 md:p-5">
-            <h2 className="text-xl font-semibold mb-4">3. Enter Amount</h2>
-            <InputSection credit={credit} setCredit={setCredit} isDebit={isDebit} setIsDebit={setIsDebit} />
-          </div>
-
           {chartData.length > 0 && (
-            <div className="bg-[#1e1e1e] border border-gray-800 rounded-xl shadow-sm p-6 md:p-8 text-gray-200">
-              <h2 className="text-xl font-semibold mb-6 text-gray-100">4. Analysis</h2>
-              <div className="h-[500px] w-full">
+            <div className="bg-[#1e1e1e] border border-gray-800 rounded-xl shadow-sm p-6 md:p-8 text-gray-200 animate-in fade-in slide-in-from-bottom-4 duration-500">
+              <div className="flex justify-between items-center mb-6">
+                <h2 className="text-xl font-semibold text-gray-100">4. Analysis</h2>
+                <button
+                  onClick={handleStartOver}
+                  className="px-3 py-1 text-sm bg-gray-700 hover:bg-gray-600 text-gray-200 rounded-md transition-colors"
+                >
+                  Start Over
+                </button>
+              </div>
+
+              <div className="h-[350px] w-full">
                 <ResponsiveContainer width="100%" height="100%">
                   <AreaChart data={chartData} margin={{ top: 20, right: 30, left: 20, bottom: 20 }}>
                     <CartesianGrid strokeDasharray="3 3" stroke="#333" />
@@ -159,7 +288,7 @@ function App() {
                       allowDecimals={false}
                       stroke="#666"
                       tickFormatter={(value) => `$${Math.round(value)}`}
-                      tick={{ fontSize: 12, fill: '#9ca3af', dy: -230 }}
+                      tick={{ fontSize: 12, fill: '#9ca3af', dy: -145 }}
                       axisLine={false}
                       tickLine={false}
                       height={10}
@@ -170,8 +299,19 @@ function App() {
                       width={0}
                       domain={(() => {
                         if (!chartData.length) return ['auto', 'auto'];
-                        const max = Math.max(...chartData.map(d => Math.abs(d.pl)));
-                        const limit = Math.ceil(max * 1.1); // Add 10% padding
+
+                        const start = zoomRange.startIndex;
+                        const end = zoomRange.endIndex || chartData.length - 1;
+                        const visibleData = chartData.slice(start, end + 1);
+
+                        if (!visibleData.length) return ['auto', 'auto'];
+
+                        const maxAbs = Math.max(...visibleData.map(d => Math.abs(d.pl)));
+                        const limit = Math.ceil(maxAbs * 1.1); // Add 10% padding
+
+                        // Ensure we don't have a 0 range if everything is 0
+                        if (limit === 0) return [-10, 10];
+
                         return [-limit, limit];
                       })()}
                     />
@@ -182,7 +322,9 @@ function App() {
                             <div className="bg-[#262626] border border-[#404040] text-[#e5e5e5] rounded-lg p-3 shadow-lg">
                               <div className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1 text-sm">
                                 <span className="text-gray-400">Price:</span>
-                                <span className="text-right font-medium">${Math.round(label)}</span>
+                                <span className="text-right font-medium">
+                                  ${Number.isInteger(label) ? label : label.toFixed(2)}
+                                </span>
                                 <span className="text-gray-400">P/L:</span>
                                 <span className={`text-right font-medium ${payload[0].value >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
                                   ${payload[0].value}
@@ -195,20 +337,47 @@ function App() {
                       }}
                     />
                     <ReferenceLine y={0} stroke="#525252" strokeWidth={2} />
+                    {breakevenPoints.map((point, index) => (
+                      <ReferenceDot
+                        key={index}
+                        x={point.x}
+                        y={point.y}
+                        r={6}
+                        fill="#10b981"
+                        stroke="#fff"
+                        strokeWidth={2}
+                      />
+                    ))}
                     <defs>
                       <linearGradient id="splitColor" x1="0" y1="0" x2="0" y2="1">
                         <stop offset={(() => {
-                          const max = Math.max(...chartData.map(d => d.pl));
-                          const min = Math.min(...chartData.map(d => d.pl));
+                          const start = zoomRange.startIndex;
+                          const end = zoomRange.endIndex || chartData.length - 1;
+                          const visibleData = chartData.slice(start, end + 1);
+
+                          if (!visibleData.length) return 0;
+
+                          const max = Math.max(...visibleData.map(d => d.pl));
+                          const min = Math.min(...visibleData.map(d => d.pl));
+
                           if (max <= 0) return 0;
                           if (min >= 0) return 1;
+
                           return max / (max - min);
                         })()} stopColor="#10b981" stopOpacity={0.3} />
                         <stop offset={(() => {
-                          const max = Math.max(...chartData.map(d => d.pl));
-                          const min = Math.min(...chartData.map(d => d.pl));
+                          const start = zoomRange.startIndex;
+                          const end = zoomRange.endIndex || chartData.length - 1;
+                          const visibleData = chartData.slice(start, end + 1);
+
+                          if (!visibleData.length) return 0;
+
+                          const max = Math.max(...visibleData.map(d => d.pl));
+                          const min = Math.min(...visibleData.map(d => d.pl));
+
                           if (max <= 0) return 0;
                           if (min >= 0) return 1;
+
                           return max / (max - min);
                         })()} stopColor="#ef4444" stopOpacity={0.3} />
                       </linearGradient>
@@ -220,8 +389,42 @@ function App() {
                       fill="url(#splitColor)"
                       strokeWidth={3}
                     />
+                    <Brush
+                      dataKey="price"
+                      height={30}
+                      stroke="#525252"
+                      fill="#1e1e1e"
+                      tickFormatter={(value) => `$${Math.round(value)}`}
+                      startIndex={zoomRange.startIndex}
+                      endIndex={zoomRange.endIndex}
+                      onChange={({ startIndex, endIndex }) => setZoomRange({ startIndex, endIndex })}
+                    />
                   </AreaChart>
                 </ResponsiveContainer>
+              </div>
+
+              <div className="flex justify-center gap-2 mt-4">
+                <button
+                  onClick={handleZoomIn}
+                  className="p-2 bg-gray-800 hover:bg-gray-700 rounded-md transition-colors text-gray-300"
+                  title="Zoom In"
+                >
+                  <Plus size={18} />
+                </button>
+                <button
+                  onClick={handleZoomOut}
+                  className="p-2 bg-gray-800 hover:bg-gray-700 rounded-md transition-colors text-gray-300"
+                  title="Zoom Out"
+                >
+                  <Minus size={18} />
+                </button>
+                <button
+                  onClick={handleResetZoom}
+                  className="p-2 bg-gray-800 hover:bg-gray-700 rounded-md transition-colors text-gray-300"
+                  title="Reset Zoom"
+                >
+                  <RotateCcw size={18} />
+                </button>
               </div>
             </div>
           )}

@@ -15,40 +15,59 @@ def calculate_pl(positions, credit, current_price=180, range_percent=0.5):
         lower_bound = center * (1 - range_percent)
         upper_bound = center * (1 + range_percent)
         
-    prices = np.linspace(lower_bound, upper_bound, 100)
-    data_points = []
+    # Ensure bounds are integers for arange
+    start = int(np.floor(lower_bound))
+    end = int(np.ceil(upper_bound))
     
-    for price in prices:
-        total_pl = float(credit) # Start with credit collected
-        
+    # Generate prices with step 1 (every dollar)
+    prices = np.arange(start, end + 1, 1)
+    
+    # Calculate exact breakeven points
+    breakeven_points = []
+    
+    # Helper to calculate P/L for a single price
+    def get_pl(price):
+        total_pl = float(credit)
         for pos in positions:
             qty = pos['qty']
             strike = pos['strike']
             otype = pos['type']
-            
-            # Value of the option at expiration
             if otype == 'C':
                 value = max(0, price - strike)
-            else: # Put
+            else:
                 value = max(0, strike - price)
+            total_pl += qty * value * 100
+        return total_pl
+
+    # Find roots between critical points (strikes + bounds)
+    strikes = sorted(list(set([p['strike'] for p in positions])))
+    check_points = sorted(list(set([start, end] + strikes)))
+    
+    for i in range(len(check_points) - 1):
+        p1 = check_points[i]
+        p2 = check_points[i+1]
+        
+        pl1 = get_pl(p1)
+        pl2 = get_pl(p2)
+        
+        if pl1 == 0:
+            breakeven_points.append(p1)
+        
+        if pl1 * pl2 < 0:
+            # Linear interpolation
+            root = p1 + (0 - pl1) * (p2 - p1) / (pl2 - pl1)
+            breakeven_points.append(root)
             
-            # If we sold the option (qty < 0), we pay the value to close (or it expires)
-            # If we bought the option (qty > 0), we receive the value
-            # P/L contribution = Qty * Value (at expiration)
-            # Wait, standard P/L logic:
-            # Short Call: Credit - Max(0, S - K)
-            # Long Call: Max(0, S - K) - Debit
-            # Here we treat 'credit' as a lump sum passed in.
-            # So we just subtract the payout at expiration for short positions, add for long.
-            
-            # Actually, the user provides "Total Credit Collected".
-            # So the P/L at expiration = Total Credit + Sum(Position Value at Expiration)
-            # Where Position Value = Qty * OptionIntrinsicValue
-            # Example: Short Put (-1). Expiration Price < Strike. Intrinsic = Strike - Price.
-            # We have to pay that. So (-1) * (Strike - Price) = -(Strike - Price). Correct.
-            
-            total_pl += qty * value * 100 # Options are usually 100 shares
-            
-        data_points.append({"price": round(price, 2), "pl": round(total_pl, 2)})
+    if get_pl(check_points[-1]) == 0:
+        breakeven_points.append(check_points[-1])
+
+    # Merge integer prices and breakeven points
+    all_prices = sorted(list(set(prices.tolist() + breakeven_points)))
+    
+    data_points = []
+    
+    for price in all_prices:
+        total_pl = get_pl(price)
+        data_points.append({"price": float(price), "pl": float(round(total_pl, 2))})
         
     return data_points
