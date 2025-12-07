@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import UploadSection from './components/UploadSection';
 import InputSection from './components/InputSection';
-import PositionsTable from './components/PositionsTable';
+import PositionsTable, { generateId } from './components/PositionsTable';
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, ReferenceLine, ReferenceDot, Brush } from 'recharts';
 import { Plus, Minus, RotateCcw, Sun, Moon } from 'lucide-react';
 
@@ -61,8 +61,8 @@ function App() {
     if (import.meta.env.DEV) {
       window.loadMockData = () => {
         setPositions([
-          { qty: -2, expiration: 'Dec 19', strike: 240, type: 'P' },
-          { qty: -2, expiration: 'Dec 19', strike: 240, type: 'C' }
+          { id: generateId(), qty: -2, expiration: 'Dec 19', strike: 240, type: 'P' },
+          { id: generateId(), qty: -2, expiration: 'Dec 19', strike: 240, type: 'C' }
         ]);
         setCredit('1750');
         setIsDebit(false);
@@ -164,7 +164,7 @@ function App() {
       if (!response.ok) throw new Error('Upload failed');
 
       const data = await response.json();
-      setPositions(data.positions);
+      setPositions(data.positions.map(pos => ({ ...pos, id: generateId() })));
     } catch (err) {
       console.error(err);
       setError('Failed to upload and parse image. Please try again or enter manually.');
@@ -174,7 +174,7 @@ function App() {
   };
 
   const handleManualEntry = () => {
-    setPositions([{ qty: -1, expiration: '', strike: 0, type: 'P' }]);
+    setPositions([{ id: generateId(), qty: -1, expiration: '', strike: 0, type: 'P' }]);
   };
 
   useEffect(() => {

@@ -55,11 +55,3 @@ def parse_screenshot(image_bytes):
     except Exception as e:
         print(f"Gemini OCR Error: {e}")
         return []
-
-def mock_parse_screenshot():
-    # Fallback if OCR fails or for testing
-    return [
-        {"qty": -1, "expiration": "Dec 19", "strike": 135, "type": "P"},
-        {"qty": -1, "expiration": "Dec 19", "strike": 150, "type": "P"},
-        {"qty": -2, "expiration": "Dec 19", "strike": 230, "type": "C"},
-    ]

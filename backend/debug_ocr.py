@@ -1,5 +1,6 @@
 import ocr
 import os
+import sys
 
 if __name__ == "__main__":
     # Check for API Key
@@ -9,18 +10,23 @@ if __name__ == "__main__":
         print("Then run this script again.\n")
         exit(1)
 
-    # Test with the full screenshot (previous upload)
-    image_path = "/Users/forrest/.gemini/antigravity/brain/a4e90054-0a94-4fb1-a1c9-e3d1f69f48c2/uploaded_image_1764242919393.png"
-    
+    # Get image path from command line argument
+    if len(sys.argv) < 2:
+        print("\nUsage: python debug_ocr.py <image_path>")
+        print("Example: python debug_ocr.py ./test_image.png\n")
+        exit(1)
+
+    image_path = sys.argv[1]
+
     try:
         with open(image_path, "rb") as f:
             image_bytes = f.read()
-            
+
         print(f"Processing {image_path} using Gemini API...")
         positions = ocr.parse_screenshot(image_bytes)
         print("\nParsed Positions:")
         print(positions)
-            
+
     except FileNotFoundError:
         print(f"Error: File not found at {image_path}")
     except Exception as e:

@@ -1,14 +1,17 @@
 import React from 'react';
 import { Trash2, Plus } from 'lucide-react';
 
+let nextId = 1;
+export const generateId = () => `pos_${nextId++}_${Date.now()}`;
+
 const PositionsTable = ({ positions, setPositions }) => {
-    const handleRemove = (index) => {
-        const newPositions = positions.filter((_, i) => i !== index);
+    const handleRemove = (id) => {
+        const newPositions = positions.filter((pos) => pos.id !== id);
         setPositions(newPositions);
     };
 
     const handleAdd = () => {
-        setPositions([...positions, { qty: -1, expiration: '', strike: 0, type: 'P' }]);
+        setPositions([...positions, { id: generateId(), qty: -1, expiration: '', strike: 0, type: 'P' }]);
     };
 
     const handleChange = (index, field, value) => {
@@ -45,7 +48,7 @@ const PositionsTable = ({ positions, setPositions }) => {
                     </thead>
                     <tbody className="divide-y divide-border bg-card">
                         {positions.map((pos, index) => (
-                            <tr key={index} className="hover:bg-muted/50 transition-colors">
+                            <tr key={pos.id || index} className="hover:bg-muted/50 transition-colors">
                                 <td className="px-4 py-3">
                                     <input
                                         type="number"
@@ -82,7 +85,7 @@ const PositionsTable = ({ positions, setPositions }) => {
                                 </td>
                                 <td className="px-4 py-3">
                                     <button
-                                        onClick={() => handleRemove(index)}
+                                        onClick={() => handleRemove(pos.id)}
                                         className="text-destructive hover:text-destructive/80 transition-colors"
                                     >
                                         <Trash2 className="w-4 h-4" />

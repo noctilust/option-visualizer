@@ -16,8 +16,8 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=origins,
     allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=["GET", "POST"],
+    allow_headers=["Content-Type", "Authorization"],
 )
 
 
@@ -32,11 +32,7 @@ async def upload_image(file: UploadFile = File(...)):
         contents = await file.read()
         positions = ocr.parse_screenshot(contents)
         if not positions:
-            # Fallback to mock if OCR returns empty (for testing or bad image)
-            # In production, we might return an error or empty list
-            # For this demo, let's return the mock if it fails to find anything
-            # positions = ocr.mock_parse_screenshot()
-            pass
+            positions = []
         return {"positions": positions}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
