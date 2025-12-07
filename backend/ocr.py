@@ -3,7 +3,6 @@ import PIL.Image
 import io
 import json
 import os
-import typing
 from dotenv import load_dotenv
 
 # Load environment variables

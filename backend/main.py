@@ -1,3 +1,4 @@
+import os
 from fastapi import FastAPI, UploadFile, File, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from typing import List, Optional
@@ -7,10 +8,9 @@ from schemas import Position, CalculateRequest
 
 app = FastAPI()
 
-origins = [
-    "http://localhost:5173",
-    "http://localhost:3000",
-]
+# CORS origins from environment variable, with sensible defaults for development
+default_origins = "http://localhost:5173,http://localhost:3000"
+origins = os.environ.get("CORS_ORIGINS", default_origins).split(",")
 
 app.add_middleware(
     CORSMiddleware,
@@ -45,7 +45,7 @@ async def upload_image(file: UploadFile = File(...)):
 def calculate_pl(request: CalculateRequest):
     try:
         # Convert Pydantic models to dicts for the calculator
-        positions_dicts = [p.dict() for p in request.positions]
+        positions_dicts = [p.model_dump() for p in request.positions]
         data = calculator.calculate_pl(positions_dicts, request.credit)
         return {"data": data}
     except Exception as e:

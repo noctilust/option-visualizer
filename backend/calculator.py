@@ -1,19 +1,15 @@
 import numpy as np
 
-def calculate_pl(positions, credit, current_price=180, range_percent=0.5):
-    # Determine range for the chart
-    # If we have strikes, center around them. If not, use current_price.
+def calculate_pl(positions, credit, range_percent=0.5):
+    # Determine range for the chart based on strike prices
     strikes = [p['strike'] for p in positions]
-    if strikes:
-        min_strike = min(strikes)
-        max_strike = max(strikes)
-        center = (min_strike + max_strike) / 2
-        lower_bound = min_strike * (1 - range_percent)
-        upper_bound = max_strike * (1 + range_percent)
-    else:
-        center = current_price
-        lower_bound = center * (1 - range_percent)
-        upper_bound = center * (1 + range_percent)
+    if not strikes:
+        raise ValueError("At least one position with a strike price is required")
+
+    min_strike = min(strikes)
+    max_strike = max(strikes)
+    lower_bound = min_strike * (1 - range_percent)
+    upper_bound = max_strike * (1 + range_percent)
         
     # Ensure bounds are integers for arange
     start = int(np.floor(lower_bound))
