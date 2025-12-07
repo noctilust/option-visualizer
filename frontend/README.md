@@ -1,16 +1,103 @@
-# React + Vite
+# Option Visualizer Frontend
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+React frontend for the Option Visualizer application. Built with Vite, TailwindCSS, and Recharts.
 
-Currently, two official plugins are available:
+## Prerequisites
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Babel](https://babeljs.io/) (or [oxc](https://oxc.rs) when used in [rolldown-vite](https://vite.dev/guide/rolldown)) for Fast Refresh
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/) for Fast Refresh
+- Node.js 18+
+- npm or yarn
 
-## React Compiler
+## Setup
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+### 1. Install Dependencies
 
-## Expanding the ESLint configuration
+```bash
+npm install
+```
 
-If you are developing a production application, we recommend using TypeScript with type-aware lint rules enabled. Check out the [TS template](https://github.com/vitejs/vite/tree/main/packages/create-vite/template-react-ts) for information on how to integrate TypeScript and [`typescript-eslint`](https://typescript-eslint.io) in your project.
+### 2. Configure Environment (Optional)
+
+Create a `.env` file to configure the API URL:
+
+```bash
+VITE_API_URL=http://localhost:8000
+```
+
+| Variable | Description | Default |
+|----------|-------------|---------|
+| `VITE_API_URL` | Backend API URL | `http://localhost:8000` |
+
+## Development
+
+Start the development server with hot reload:
+
+```bash
+npm run dev
+```
+
+The app will be available at [http://localhost:5173](http://localhost:5173).
+
+## Scripts
+
+| Command | Description |
+|---------|-------------|
+| `npm run dev` | Start development server |
+| `npm run build` | Build for production |
+| `npm run preview` | Preview production build |
+| `npm run lint` | Run ESLint |
+| `npm test` | Run tests once |
+| `npm run test:watch` | Run tests in watch mode |
+
+## Testing
+
+Run the test suite:
+
+```bash
+npm test
+```
+
+Run tests in watch mode during development:
+
+```bash
+npm run test:watch
+```
+
+## Project Structure
+
+```
+frontend/
+├── src/
+│   ├── App.jsx                # Main application component
+│   ├── main.jsx               # React entry point
+│   ├── index.css              # Global styles
+│   └── components/
+│       ├── UploadSection.jsx      # File upload & OCR UI
+│       ├── InputSection.jsx       # Credit/debit input form
+│       ├── PositionsTable.jsx     # Editable positions table
+│       └── PositionsTable.test.jsx
+├── public/                    # Static assets
+├── package.json               # Dependencies & scripts
+├── vite.config.js             # Vite configuration
+├── tailwind.config.js         # TailwindCSS configuration
+└── eslint.config.js           # ESLint configuration
+```
+
+## Features
+
+- **Screenshot Upload**: Drag & drop or click to upload options screenshots
+- **OCR Parsing**: Automatic position extraction using backend OCR
+- **Manual Entry**: Add and edit positions manually
+- **Interactive Charts**: Zoom, pan, and hover for P/L details
+- **Breakeven Snapping**: Magnetic cursor snapping to breakeven points
+- **Theme Toggle**: Dark and light mode support
+- **Responsive Design**: Works on desktop and mobile
+
+## Tech Stack
+
+- **React 19** - UI framework
+- **Vite 7** - Build tool with HMR
+- **TailwindCSS 4** - Utility-first CSS
+- **Recharts 3** - Charting library
+- **Lucide React** - Icon library
+- **Vitest** - Test runner
+- **React Testing Library** - Component testing
