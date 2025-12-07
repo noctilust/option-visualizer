@@ -3,10 +3,11 @@ import UploadSection from './components/UploadSection';
 import InputSection from './components/InputSection';
 import PositionsTable from './components/PositionsTable';
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, ReferenceLine, ReferenceDot, Brush } from 'recharts';
-import { Plus, Minus, RotateCcw } from 'lucide-react';
+import { Plus, Minus, RotateCcw, Sun, Moon } from 'lucide-react';
+
+const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:8000';
 
 function App() {
-  const [file, setFile] = useState(null);
   const [credit, setCredit] = useState('');
   const [isDebit, setIsDebit] = useState(false);
   const [positions, setPositions] = useState([]);
@@ -14,19 +15,60 @@ function App() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const [zoomRange, setZoomRange] = useState({ startIndex: 0, endIndex: 0 });
+  const [uploadResetKey, setUploadResetKey] = useState(0);
+  const [theme, setTheme] = useState(() => {
+    if (typeof window !== 'undefined') {
+      return localStorage.getItem('theme') || 'system';
+    }
+    return 'system';
+  });
 
-  // Expose mock data loader for testing
+  // Apply theme to document
   useEffect(() => {
-    window.loadMockData = () => {
-      setFile({ name: 'ORCL 1750 cr.png', size: 20000 }); // Mock file object
-      setPositions([
-        { qty: -2, expiration: 'Dec 19', strike: 240, type: 'P' },
-        { qty: -2, expiration: 'Dec 19', strike: 240, type: 'C' }
-      ]);
-      setCredit('1750');
-      setIsDebit(false);
-      console.log('Mock data loaded');
-    };
+    const root = document.documentElement;
+
+    if (theme === 'dark') {
+      root.classList.add('dark');
+    } else if (theme === 'light') {
+      root.classList.remove('dark');
+    } else {
+      // System preference
+      const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+      if (prefersDark) {
+        root.classList.add('dark');
+      } else {
+        root.classList.remove('dark');
+      }
+    }
+
+    localStorage.setItem('theme', theme);
+  }, [theme]);
+
+  const toggleTheme = () => {
+    setTheme(prev => {
+      if (prev === 'light') return 'dark';
+      if (prev === 'dark') return 'light';
+      // If system, check current and go opposite
+      const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+      return prefersDark ? 'light' : 'dark';
+    });
+  };
+
+  const isDark = theme === 'dark' || (theme === 'system' && typeof window !== 'undefined' && window.matchMedia('(prefers-color-scheme: dark)').matches);
+
+  // Expose mock data loader for testing (dev only)
+  useEffect(() => {
+    if (import.meta.env.DEV) {
+      window.loadMockData = () => {
+        setPositions([
+          { qty: -2, expiration: 'Dec 19', strike: 240, type: 'P' },
+          { qty: -2, expiration: 'Dec 19', strike: 240, type: 'C' }
+        ]);
+        setCredit('1750');
+        setIsDebit(false);
+        console.log('Mock data loaded');
+      };
+    }
   }, []);
 
   // Reset zoom when chart data changes, with smart default based on profit zone
@@ -105,7 +147,6 @@ function App() {
   }, [chartData, zoomRange]);
 
   const handleFileSelect = async (selectedFile) => {
-    setFile(selectedFile);
     if (!selectedFile) return;
 
     setLoading(true);
@@ -115,7 +156,7 @@ function App() {
     formData.append('file', selectedFile);
 
     try {
-      const response = await fetch('http://localhost:8000/upload', {
+      const response = await fetch(`${API_BASE}/upload`, {
         method: 'POST',
         body: formData,
       });
@@ -132,6 +173,10 @@ function App() {
     }
   };
 
+  const handleManualEntry = () => {
+    setPositions([{ qty: -1, expiration: '', strike: 0, type: 'P' }]);
+  };
+
   useEffect(() => {
     const calculatePL = async () => {
       if (positions.length === 0 || !credit) {
@@ -145,7 +190,7 @@ function App() {
           creditValue = -creditValue;
         }
 
-        const response = await fetch('http://localhost:8000/calculate', {
+        const response = await fetch(`${API_BASE}/calculate`, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
@@ -188,13 +233,29 @@ function App() {
     return points;
   }, [chartData]);
 
+  const gradientOffset = useMemo(() => {
+    const start = zoomRange.startIndex;
+    const end = zoomRange.endIndex || chartData.length - 1;
+    const visibleData = chartData.slice(start, end + 1);
+
+    if (!visibleData.length) return 0;
+
+    const max = Math.max(...visibleData.map(d => d.pl));
+    const min = Math.min(...visibleData.map(d => d.pl));
+
+    if (max <= 0) return 0;
+    if (min >= 0) return 1;
+
+    return max / (max - min);
+  }, [chartData, zoomRange]);
+
   const handleStartOver = () => {
-    setFile(null);
     setCredit('');
     setIsDebit(false);
     setPositions([]);
     setChartData([]);
     setError(null);
+    setUploadResetKey(prev => prev + 1);
   };
 
   const handleZoomIn = () => {
@@ -226,13 +287,58 @@ function App() {
 
   const handleResetZoom = () => {
     if (chartData.length > 0) {
-      setZoomRange({ startIndex: 0, endIndex: chartData.length - 1 });
+      // Find profit zone indices (same logic as initial load)
+      const firstProfitIndex = chartData.findIndex(d => d.pl > 0);
+      const lastProfitIndex = chartData.findLastIndex(d => d.pl > 0);
+
+      if (firstProfitIndex !== -1 && lastProfitIndex !== -1) {
+        const profitWidth = lastProfitIndex - firstProfitIndex;
+        const padding = Math.floor(profitWidth * 0.5); // 50% padding on each side
+
+        const startIndex = Math.max(0, firstProfitIndex - padding);
+        const endIndex = Math.min(chartData.length - 1, lastProfitIndex + padding);
+
+        setZoomRange({ startIndex, endIndex });
+      } else if (positions.length > 0) {
+        // Fallback to strike-based zoom if no profit zone
+        const strikes = positions.map(p => p.strike);
+        const minStrike = Math.min(...strikes);
+        const maxStrike = Math.max(...strikes);
+
+        const lowerBound = minStrike * 0.9;
+        const upperBound = maxStrike * 1.1;
+
+        const startIdx = chartData.findIndex(d => d.price >= lowerBound);
+        const endIdx = chartData.findIndex(d => d.price >= upperBound);
+
+        setZoomRange({
+          startIndex: startIdx !== -1 ? startIdx : 0,
+          endIndex: endIdx !== -1 ? endIdx : chartData.length - 1
+        });
+      } else {
+        setZoomRange({ startIndex: 0, endIndex: chartData.length - 1 });
+      }
     }
   };
 
   return (
     <div className="min-h-screen bg-background text-foreground font-sans selection:bg-primary selection:text-primary-foreground">
       <div className="max-w-5xl mx-auto px-4 py-12">
+        {/* Theme Toggle Button */}
+        <div className="absolute top-4 right-4 md:top-6 md:right-6">
+          <button
+            onClick={toggleTheme}
+            className="p-2.5 rounded-full bg-card border border-border hover:bg-muted transition-colors shadow-sm"
+            title={isDark ? 'Switch to light mode' : 'Switch to dark mode'}
+          >
+            {isDark ? (
+              <Sun size={20} className="text-yellow-500" />
+            ) : (
+              <Moon size={20} className="text-slate-700" />
+            )}
+          </button>
+        </div>
+
         <header className="text-center mb-12">
           <h1 className="text-4xl font-extrabold tracking-tight lg:text-5xl mb-4 bg-gradient-to-r from-primary to-blue-600 bg-clip-text text-transparent">
             Option Premium Visualizer
@@ -245,7 +351,7 @@ function App() {
         <main className="space-y-4">
           <div className="bg-card border border-border rounded-xl shadow-sm p-4 md:p-5">
             <h2 className="text-xl font-semibold mb-4">1. Upload Positions</h2>
-            <UploadSection onFileSelect={handleFileSelect} />
+            <UploadSection onFileSelect={handleFileSelect} onManualEntry={handleManualEntry} resetKey={uploadResetKey} />
             {loading && <p className="text-center text-muted-foreground animate-pulse">Processing image...</p>}
             {error && <p className="text-center text-destructive">{error}</p>}
           </div>
@@ -265,20 +371,21 @@ function App() {
           )}
 
           {chartData.length > 0 && (
-            <div className="bg-[#1e1e1e] border border-gray-800 rounded-xl shadow-sm p-6 md:p-8 text-gray-200 animate-in fade-in slide-in-from-bottom-4 duration-500">
-              <div className="flex justify-between items-center mb-6">
-                <h2 className="text-xl font-semibold text-gray-100">4. Analysis</h2>
+            <div className="bg-card border border-border rounded-xl shadow-sm p-4 md:p-5 text-foreground animate-in fade-in slide-in-from-bottom-4 duration-500">
+              <div className="flex justify-between items-center mb-4">
+                <h2 className="text-xl font-semibold">4. Analysis</h2>
                 <button
                   onClick={handleStartOver}
-                  className="px-3 py-1 text-sm bg-gray-700 hover:bg-gray-600 text-gray-200 rounded-md transition-colors"
+                  className="flex items-center justify-center gap-1.5 min-w-[140px] px-4 py-2 text-sm font-medium text-primary-foreground bg-primary rounded-lg hover:bg-primary/90 transition-all shadow-sm hover:shadow-md"
                 >
+                  <RotateCcw size={14} />
                   Start Over
                 </button>
               </div>
 
               <div className="h-[350px] w-full">
                 <ResponsiveContainer width="100%" height="100%">
-                  <AreaChart data={chartData} margin={{ top: 20, right: 30, left: 20, bottom: 20 }}>
+                  <AreaChart data={chartData} margin={{ top: 20, right: 0, left: 0, bottom: 40 }}>
                     <CartesianGrid strokeDasharray="3 3" stroke="#333" />
                     <XAxis
                       dataKey="price"
@@ -288,10 +395,10 @@ function App() {
                       allowDecimals={false}
                       stroke="#666"
                       tickFormatter={(value) => `$${Math.round(value)}`}
-                      tick={{ fontSize: 12, fill: '#9ca3af', dy: -145 }}
-                      axisLine={false}
-                      tickLine={false}
-                      height={10}
+                      tick={{ fontSize: 12, fill: '#9ca3af' }}
+                      axisLine={{ stroke: '#525252' }}
+                      tickLine={{ stroke: '#525252' }}
+                      tickMargin={8}
                     />
                     <YAxis
                       stroke="#666"
@@ -350,36 +457,8 @@ function App() {
                     ))}
                     <defs>
                       <linearGradient id="splitColor" x1="0" y1="0" x2="0" y2="1">
-                        <stop offset={(() => {
-                          const start = zoomRange.startIndex;
-                          const end = zoomRange.endIndex || chartData.length - 1;
-                          const visibleData = chartData.slice(start, end + 1);
-
-                          if (!visibleData.length) return 0;
-
-                          const max = Math.max(...visibleData.map(d => d.pl));
-                          const min = Math.min(...visibleData.map(d => d.pl));
-
-                          if (max <= 0) return 0;
-                          if (min >= 0) return 1;
-
-                          return max / (max - min);
-                        })()} stopColor="#10b981" stopOpacity={0.3} />
-                        <stop offset={(() => {
-                          const start = zoomRange.startIndex;
-                          const end = zoomRange.endIndex || chartData.length - 1;
-                          const visibleData = chartData.slice(start, end + 1);
-
-                          if (!visibleData.length) return 0;
-
-                          const max = Math.max(...visibleData.map(d => d.pl));
-                          const min = Math.min(...visibleData.map(d => d.pl));
-
-                          if (max <= 0) return 0;
-                          if (min >= 0) return 1;
-
-                          return max / (max - min);
-                        })()} stopColor="#ef4444" stopOpacity={0.3} />
+                        <stop offset={gradientOffset} stopColor="#10b981" stopOpacity={0.3} />
+                        <stop offset={gradientOffset} stopColor="#ef4444" stopOpacity={0.3} />
                       </linearGradient>
                     </defs>
                     <Area
@@ -391,13 +470,14 @@ function App() {
                     />
                     <Brush
                       dataKey="price"
-                      height={30}
-                      stroke="#525252"
-                      fill="#1e1e1e"
+                      height={25}
+                      stroke={isDark ? 'hsl(217.2 32.6% 25%)' : 'hsl(214.3 31.8% 91.4%)'}
+                      fill={isDark ? 'hsl(222.2 84% 6%)' : 'hsl(210 40% 98%)'}
                       tickFormatter={(value) => `$${Math.round(value)}`}
                       startIndex={zoomRange.startIndex}
                       endIndex={zoomRange.endIndex}
                       onChange={({ startIndex, endIndex }) => setZoomRange({ startIndex, endIndex })}
+                      travellerWidth={10}
                     />
                   </AreaChart>
                 </ResponsiveContainer>
@@ -406,21 +486,21 @@ function App() {
               <div className="flex justify-center gap-2 mt-4">
                 <button
                   onClick={handleZoomIn}
-                  className="p-2 bg-gray-800 hover:bg-gray-700 rounded-md transition-colors text-gray-300"
+                  className="p-2 bg-muted hover:bg-muted/80 rounded-md transition-colors text-muted-foreground"
                   title="Zoom In"
                 >
                   <Plus size={18} />
                 </button>
                 <button
                   onClick={handleZoomOut}
-                  className="p-2 bg-gray-800 hover:bg-gray-700 rounded-md transition-colors text-gray-300"
+                  className="p-2 bg-muted hover:bg-muted/80 rounded-md transition-colors text-muted-foreground"
                   title="Zoom Out"
                 >
                   <Minus size={18} />
                 </button>
                 <button
                   onClick={handleResetZoom}
-                  className="p-2 bg-gray-800 hover:bg-gray-700 rounded-md transition-colors text-gray-300"
+                  className="p-2 bg-muted hover:bg-muted/80 rounded-md transition-colors text-muted-foreground"
                   title="Reset Zoom"
                 >
                   <RotateCcw size={18} />

@@ -20,14 +20,14 @@ const PositionsTable = ({ positions, setPositions }) => {
     if (!positions || positions.length === 0) return null;
 
     return (
-        <div className="w-full max-w-4xl mx-auto">
+        <div className="w-full">
             <div className="flex items-center justify-between mb-4">
                 <h3 className="text-lg font-medium">Positions</h3>
                 <button
                     onClick={handleAdd}
-                    className="flex items-center px-3 py-1 text-sm font-medium text-primary bg-primary/10 rounded-md hover:bg-primary/20 transition-colors"
+                    className="flex items-center justify-center gap-1.5 min-w-[140px] px-4 py-2 text-sm font-medium text-primary-foreground bg-primary rounded-lg hover:bg-primary/90 transition-all shadow-sm hover:shadow-md"
                 >
-                    <Plus className="w-4 h-4 mr-1" />
+                    <Plus size={14} />
                     Add Position
                 </button>
             </div>
