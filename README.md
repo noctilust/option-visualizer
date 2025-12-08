@@ -7,7 +7,7 @@ A web application for visualizing options positions and analyzing profit/loss sc
 ## Features
 
 - **Screenshot OCR**: Upload screenshots of options positions and automatically extract position data using Google's Gemini AI
-- **Manual Entry**: Enter positions manually with a user-friendly form
+- **Manual Entry**: Enter positions manually with a user-friendly form (expiration date is optional)
 - **Interactive P/L Charts**: Visualize profit/loss across different stock prices with Recharts
 - **Breakeven Analysis**: See exact breakeven points with magnetic cursor snapping
 - **Dark/Light Mode**: Toggle between themes for comfortable viewing
@@ -32,7 +32,7 @@ A web application for visualizing options positions and analyzing profit/loss sc
 ### 1. Clone the Repository
 
 ```bash
-git clone https://github.com/yourusername/option-visualizer.git
+git clone https://github.com/noctilust/option-visualizer.git
 cd option-visualizer
 ```
 

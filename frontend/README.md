@@ -86,7 +86,7 @@ frontend/
 
 - **Screenshot Upload**: Drag & drop or click to upload options screenshots
 - **OCR Parsing**: Automatic position extraction using backend OCR
-- **Manual Entry**: Add and edit positions manually
+- **Manual Entry**: Add and edit positions manually (expiration date is optional, not used in P/L calculation)
 - **Interactive Charts**: Zoom, pan, and hover for P/L details
 - **Breakeven Snapping**: Magnetic cursor snapping to breakeven points
 - **Theme Toggle**: Dark and light mode support

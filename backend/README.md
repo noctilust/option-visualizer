@@ -82,14 +82,25 @@ Calculate P/L data for a set of positions.
 {
   "positions": [
     {
+      "qty": -1,
       "strike": 100.0,
-      "quantity": 1,
-      "option_type": "call"
+      "type": "P",
+      "expiration": "Jan 16"
     }
   ],
-  "credit": 2.50
+  "credit": 250.0
 }
 ```
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `qty` | int | Yes | Quantity (positive for long, negative for short) |
+| `strike` | float | Yes | Strike price (must be > 0) |
+| `type` | string | Yes | Option type: "C" (Call) or "P" (Put) |
+| `expiration` | string | No | Expiration date (defaults to "N/A") - informational only, not used in P/L calculation |
+| `credit` | float | Yes | Net credit/debit received (positive for credit, negative for debit) |
+
+> **Note:** The P/L chart shows the at-expiration payoff diagram. The expiration date field is for display purposes only and does not affect calculations.
 
 **Response:**
 ```json
