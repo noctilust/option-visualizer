@@ -5,7 +5,7 @@ import PositionsTable, { generateId } from './components/PositionsTable';
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, ReferenceLine, ReferenceDot, Brush } from 'recharts';
 import { Plus, Minus, RotateCcw, Sun, Moon } from 'lucide-react';
 
-const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:8000';
+const API_BASE = import.meta.env.VITE_API_URL || '';
 
 function App() {
   const [credit, setCredit] = useState('');

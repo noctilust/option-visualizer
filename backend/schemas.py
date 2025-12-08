@@ -3,7 +3,7 @@ from typing import List, Literal
 
 class Position(BaseModel):
     qty: int = Field(..., description="Quantity (positive for long, negative for short)")
-    expiration: str = Field(..., min_length=1, description="Expiration date (e.g., 'Jan 16')")
+    expiration: str = Field(default="N/A", description="Expiration date (e.g., 'Jan 16') - optional for P/L calculation")
     strike: float = Field(..., gt=0, description="Strike price (must be positive)")
     type: Literal["C", "P"] = Field(..., description="Option type: 'C' for Call, 'P' for Put")
 

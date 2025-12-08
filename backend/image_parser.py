@@ -22,6 +22,23 @@ def parse_screenshot(image_bytes):
     try:
         image = PIL.Image.open(io.BytesIO(image_bytes))
         
+        # Resize large images to optimize token usage
+        # Gemini charges based on image size; we cap at 1024px on longest side
+        MAX_DIMENSION = 1024
+        width, height = image.size
+        
+        if width > MAX_DIMENSION or height > MAX_DIMENSION:
+            # Calculate new size maintaining aspect ratio
+            if width > height:
+                new_width = MAX_DIMENSION
+                new_height = int(height * (MAX_DIMENSION / width))
+            else:
+                new_height = MAX_DIMENSION
+                new_width = int(width * (MAX_DIMENSION / height))
+            
+            image = image.resize((new_width, new_height), PIL.Image.Resampling.LANCZOS)
+            print(f"Image resized from {width}x{height} to {new_width}x{new_height}")
+        
         model = genai.GenerativeModel('gemini-flash-latest')
         
         prompt = """

@@ -62,14 +62,25 @@ const PositionsTable = ({ positions, setPositions }) => {
                                         type="text"
                                         value={pos.expiration}
                                         onChange={(e) => handleChange(index, 'expiration', e.target.value)}
+                                        placeholder="Dec 20"
                                         className="w-full px-2 py-1 border rounded bg-background"
                                     />
                                 </td>
                                 <td className="px-4 py-3">
                                     <input
-                                        type="number"
+                                        type="text"
+                                        inputMode="numeric"
                                         value={pos.strike}
-                                        onChange={(e) => handleChange(index, 'strike', parseFloat(e.target.value) || 0)}
+                                        onChange={(e) => handleChange(index, 'strike', e.target.value)}
+                                        onFocus={(e) => {
+                                            if (e.target.value === '0' || e.target.value === 0) {
+                                                handleChange(index, 'strike', '');
+                                            }
+                                        }}
+                                        onBlur={(e) => {
+                                            const parsed = parseFloat(e.target.value) || 0;
+                                            handleChange(index, 'strike', parsed);
+                                        }}
                                         className="w-full px-2 py-1 border rounded bg-background"
                                     />
                                 </td>

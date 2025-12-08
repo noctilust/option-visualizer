@@ -2,7 +2,7 @@ import os
 from fastapi import FastAPI, UploadFile, File, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from typing import List, Optional
-import ocr
+import image_parser
 import calculator
 from schemas import Position, CalculateRequest
 
@@ -22,15 +22,19 @@ app.add_middleware(
 
 
 
-@app.get("/")
-def read_root():
-    return {"message": "Option Visualizer API"}
+if os.path.exists(os.path.join(os.path.dirname(__file__), "static")):
+    # In production, let the generic file server below handle the root
+    pass
+else:
+    @app.get("/")
+    def read_root():
+        return {"message": "Option Visualizer API"}
 
 @app.post("/upload")
 async def upload_image(file: UploadFile = File(...)):
     try:
         contents = await file.read()
-        positions = ocr.parse_screenshot(contents)
+        positions = image_parser.parse_screenshot(contents)
         if not positions:
             positions = []
         return {"positions": positions}
@@ -46,3 +50,26 @@ def calculate_pl(request: CalculateRequest):
         return {"data": data}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+# Serve static files (Production)
+# This assumes the frontend build is copied to 'static' directory
+from fastapi.staticfiles import StaticFiles
+from fastapi.responses import FileResponse
+
+static_path = os.path.join(os.path.dirname(__file__), "static")
+
+if os.path.isdir(static_path):
+    # Mount assets
+    app.mount("/assets", StaticFiles(directory=os.path.join(static_path, "assets")), name="assets")
+
+    # Catch-all for SPA
+    @app.get("/{full_path:path}")
+    async def serve_spa(full_path: str):
+        # Safe-guard: if the path starts with api/ (though generic here), ignore? 
+        # Actually API routes match first.
+        
+        file_path = os.path.join(static_path, full_path)
+        if os.path.isfile(file_path):
+            return FileResponse(file_path)
+        
+        return FileResponse(os.path.join(static_path, "index.html"))

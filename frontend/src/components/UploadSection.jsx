@@ -96,7 +96,7 @@ const UploadSection = ({ onFileSelect, onManualEntry, resetKey }) => {
                         <div className="p-3 bg-primary/10 rounded-full mb-4 group-hover:bg-primary/20 transition-colors">
                             <PenLine className="w-8 h-8 text-primary" />
                         </div>
-                        <p className="text-base font-semibold text-foreground mb-1">Enter Manually</p>
+                        <p className="text-base font-semibold text-foreground mb-1">Build Manually</p>
                         <p className="text-xs text-muted-foreground text-center">
                             Add positions one by one
                         </p>
@@ -128,6 +128,9 @@ const UploadSection = ({ onFileSelect, onManualEntry, resetKey }) => {
                                     </p>
                                     <p className="text-xs text-muted-foreground">
                                         PNG, JPG or GIF (Screenshot of positions)
+                                    </p>
+                                    <p className="text-[10px] text-muted-foreground/70 mt-1">
+                                        Large images are auto-optimized for faster processing
                                     </p>
                                 </div>
                                 <input

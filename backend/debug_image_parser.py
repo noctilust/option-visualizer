@@ -1,4 +1,4 @@
-import ocr
+import image_parser
 import os
 import sys
 
@@ -23,7 +23,7 @@ if __name__ == "__main__":
             image_bytes = f.read()
 
         print(f"Processing {image_path} using Gemini API...")
-        positions = ocr.parse_screenshot(image_bytes)
+        positions = image_parser.parse_screenshot(image_bytes)
         print("\nParsed Positions:")
         print(positions)
 
