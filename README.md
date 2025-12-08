@@ -2,7 +2,7 @@
 
 A web application for visualizing options positions and analyzing profit/loss scenarios. Upload a screenshot of your options positions or enter them manually to see interactive P/L charts.
 
-![Option Visualizer](TSLA.png)
+![Option Visualizer](OptionVisualizer.png)
 
 ## Features
 
