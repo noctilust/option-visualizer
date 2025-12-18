@@ -882,7 +882,7 @@ function App() {
                         key={`breakeven-${index}`}
                         x={point.x}
                         y={point.y}
-                        r={6}
+                        r={4}
                         fill="#10b981"
                         stroke="#fff"
                         strokeWidth={2}
@@ -906,20 +906,11 @@ function App() {
                               const { x, y } = viewBox;
                               return (
                                 <g>
-                                  {/* Vertical line extension below zero */}
-                                  <line
-                                    x1={x}
-                                    y1={y}
-                                    x2={x}
-                                    y2={y + 25}
-                                    stroke="#10b981"
-                                    strokeWidth={1}
-                                  />
-                                  {/* Green dot */}
+                                  {/* Green dot on x-axis */}
                                   <circle
                                     cx={x}
-                                    cy={y + 25}
-                                    r={5}
+                                    cy={y}
+                                    r={4}
                                     fill="#10b981"
                                     stroke="#fff"
                                     strokeWidth={2}
@@ -927,13 +918,13 @@ function App() {
                                   {/* Price label below dot */}
                                   <text
                                     x={x}
-                                    y={y + 42}
+                                    y={y + 18}
                                     textAnchor="middle"
                                     fill={isDark ? '#10b981' : '#059669'}
                                     fontSize={11}
                                     fontWeight={600}
                                   >
-                                    {marketData.current_price.toFixed(1)}
+                                    ${marketData.current_price.toFixed(2)}
                                   </text>
                                 </g>
                               );

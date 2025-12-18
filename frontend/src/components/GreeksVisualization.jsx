@@ -1,5 +1,5 @@
-import React, { useState } from 'react';
-import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend, ReferenceLine, ReferenceDot } from 'recharts';
+import React, { useState, useMemo } from 'react';
+import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, ReferenceLine, ReferenceDot } from 'recharts';
 import { TrendingUp, Activity } from 'lucide-react';
 
 const GreeksVisualization = ({ chartData, portfolioGreeks, marketData }) => {
@@ -118,38 +118,58 @@ const GreeksVisualization = ({ chartData, portfolioGreeks, marketData }) => {
                     <ResponsiveContainer width="100%" height={400}>
                         <LineChart
                             data={chartData}
-                            margin={{ top: 5, right: 30, left: 20, bottom: 5 }}
+                            margin={{ top: 10, right: 10, left: 10, bottom: 20 }}
                         >
                             <CartesianGrid strokeDasharray="3 3" opacity={0.1} />
                             <XAxis
                                 dataKey="price"
-                                label={{ value: 'Stock Price ($)', position: 'insideBottom', offset: -5 }}
-                                tickFormatter={(value) => `$${value}`}
+                                type="number"
+                                domain={['dataMin', 'dataMax']}
+                                tickFormatter={(value) => `$${Math.round(value)}`}
+                                tick={{ fontSize: 10, fill: '#9ca3af' }}
+                                axisLine={{ stroke: '#525252' }}
+                                tickLine={{ stroke: '#525252' }}
                             />
                             <YAxis
-                                label={{
-                                    value: selectedCount === 1
-                                        ? greekConfig[Object.keys(selectedGreeks).find(k => selectedGreeks[k])].yAxisLabel
-                                        : 'Greek Value',
-                                    angle: -90,
-                                    position: 'insideLeft'
-                                }}
+                                tick={{ fontSize: 10, fill: '#9ca3af' }}
+                                axisLine={{ stroke: '#525252' }}
+                                tickLine={{ stroke: '#525252' }}
+                                width={40}
                             />
                             <Tooltip
-                                formatter={(value, name) => {
-                                    if (value === null || value === undefined) return ['N/A', name];
-                                    return [value.toFixed(4), name];
-                                }}
-                                labelFormatter={(label) => `Stock Price: $${label}`}
-                                contentStyle={{
-                                    backgroundColor: 'var(--card)',
-                                    border: '1px solid var(--border)',
-                                    borderRadius: '8px'
+                                cursor={{ stroke: '#9ca3af', strokeWidth: 1, strokeDasharray: '4 4' }}
+                                isAnimationActive={false}
+                                content={({ active, payload, label }) => {
+                                    if (active && payload && payload.length) {
+                                        return (
+                                            <div className="bg-[#262626] border border-[#404040] text-[#e5e5e5] rounded-lg p-3 shadow-lg">
+                                                <div className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1 text-sm">
+                                                    <span className="text-gray-400">Price:</span>
+                                                    <span className="text-right font-medium">
+                                                        ${Number.isInteger(label) ? label : label.toFixed(2)}
+                                                    </span>
+                                                    {payload.map((entry, index) => (
+                                                        <React.Fragment key={index}>
+                                                            <span className="text-gray-400">{entry.name}:</span>
+                                                            <span
+                                                                className="text-right font-medium"
+                                                                style={{ color: entry.color }}
+                                                            >
+                                                                {entry.value !== null && entry.value !== undefined
+                                                                    ? entry.value.toFixed(4)
+                                                                    : 'N/A'}
+                                                            </span>
+                                                        </React.Fragment>
+                                                    ))}
+                                                </div>
+                                            </div>
+                                        );
+                                    }
+                                    return null;
                                 }}
                             />
-                            <Legend />
 
-                            {/* Current price reference line with styled indicator */}
+                            {/* Current price dotted vertical line */}
                             {currentPrice && (
                                 <>
                                     <ReferenceLine
@@ -157,49 +177,24 @@ const GreeksVisualization = ({ chartData, portfolioGreeks, marketData }) => {
                                         stroke="#10b981"
                                         strokeWidth={1}
                                         strokeDasharray="4 2"
+                                        label={{
+                                            value: `$${currentPrice.toFixed(2)}`,
+                                            position: 'insideBottomLeft',
+                                            fill: '#10b981',
+                                            fontSize: 11,
+                                            fontWeight: 600,
+                                            dy: -5
+                                        }}
                                     />
+                                    {/* Green dot on x-axis */}
                                     <ReferenceDot
                                         x={currentPrice}
-                                        y={chartData.find(d => Math.abs(d.price - currentPrice) < 1)?.delta || 0}
-                                        r={0}
-                                        label={{
-                                            content: ({ viewBox }) => {
-                                                const { x, y } = viewBox;
-                                                return (
-                                                    <g>
-                                                        {/* Vertical line extension below point */}
-                                                        <line
-                                                            x1={x}
-                                                            y1={y}
-                                                            x2={x}
-                                                            y2={y + 25}
-                                                            stroke="#10b981"
-                                                            strokeWidth={1}
-                                                        />
-                                                        {/* Green dot with white stroke */}
-                                                        <circle
-                                                            cx={x}
-                                                            cy={y + 25}
-                                                            r={5}
-                                                            fill="#10b981"
-                                                            stroke="#fff"
-                                                            strokeWidth={2}
-                                                        />
-                                                        {/* Price label below dot */}
-                                                        <text
-                                                            x={x}
-                                                            y={y + 42}
-                                                            textAnchor="middle"
-                                                            fill="#10b981"
-                                                            fontSize={11}
-                                                            fontWeight={600}
-                                                        >
-                                                            {currentPrice.toFixed(1)}
-                                                        </text>
-                                                    </g>
-                                                );
-                                            }
-                                        }}
+                                        y={0}
+                                        r={3}
+                                        fill="#10b981"
+                                        stroke="#fff"
+                                        strokeWidth={2}
+                                        isFront={true}
                                     />
                                 </>
                             )}
@@ -256,6 +251,7 @@ const GreeksVisualization = ({ chartData, portfolioGreeks, marketData }) => {
                         </LineChart>
                     </ResponsiveContainer>
 
+                    {/* Current price legend */}
                     {currentPrice && (
                         <div className="mt-2 flex items-center justify-center gap-2 text-xs">
                             <span className="inline-flex items-center gap-1.5">
@@ -265,6 +261,7 @@ const GreeksVisualization = ({ chartData, portfolioGreeks, marketData }) => {
                             <span className="text-muted-foreground">Current Price</span>
                         </div>
                     )}
+
                 </div>
             )}
 

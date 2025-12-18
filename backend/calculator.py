@@ -738,7 +738,7 @@ def calculate_pl(
     # Generate data points
     data_points = []
     # Calculate Greeks only for every Nth point to optimize performance (especially for American options)
-    greek_calculation_interval = 5  # Calculate Greeks every 5 price points
+    greek_calculation_interval = 2  # Calculate Greeks every 2 price points for performance/granularity balance
 
     for idx, price in enumerate(all_prices):
         intrinsic_pl = get_intrinsic_pl(price)
