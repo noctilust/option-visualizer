@@ -42,6 +42,15 @@ class MarketDataFetcher:
         cached_time, _ = self._cache[cache_key]
         return datetime.now() - cached_time < self.cache_duration
 
+    def _is_daily_cache_valid(self, cache_key: str) -> bool:
+        """Check if cached data is still valid for the current calendar day"""
+        if cache_key not in self._cache:
+            return False
+
+        cached_time, _ = self._cache[cache_key]
+        # Valid if cached time is from same calendar day
+        return cached_time.date() == datetime.now().date()
+
     def _get_from_cache(self, cache_key: str) -> Optional[any]:
         """Retrieve data from cache if valid"""
         if self._is_cache_valid(cache_key):
@@ -303,13 +312,18 @@ class MarketDataFetcher:
         
         Fetches live data from Yahoo Finance (^TNX - 10-Year Treasury Note Yield)
         Falls back to default rate if fetching fails.
+        Caches the rate until the end of the calendar day.
 
         Returns:
             Risk-free rate (annual, as decimal, e.g., 0.045 for 4.5%)
         """
         cache_key = "risk_free_rate"
-        cached_rate = self._get_from_cache(cache_key)
-        if cached_rate is not None:
+        
+        # Use daily cache validation instead of time-based
+        if self._is_daily_cache_valid(cache_key):
+            cached_rate = self._cache[cache_key][1]
+            cached_time = self._cache[cache_key][0]
+            logger.info(f"Using cached risk-free rate from {cached_time.strftime('%Y-%m-%d %H:%M:%S')}: {cached_rate:.2%}")
             return cached_rate
 
         try:
@@ -338,7 +352,7 @@ class MarketDataFetcher:
                 # Sanity check: rate should be between 0% and 20%
                 if 0 < rate < 0.20:
                     self._set_cache(cache_key, rate)
-                    logger.info(f"Fetched live risk-free rate (10Y Treasury): {rate:.2%}")
+                    logger.info(f"Fetched live risk-free rate (10Y Treasury): {rate:.2%} - cached until end of day")
                     return rate
                 else:
                     logger.warning(f"Risk-free rate out of range: {rate}, using default")
@@ -349,7 +363,7 @@ class MarketDataFetcher:
         # Fallback to default
         rate = self.default_risk_free_rate
         self._set_cache(cache_key, rate)
-        logger.info(f"Using default risk-free rate: {rate:.2%}")
+        logger.info(f"Using default risk-free rate: {rate:.2%} - cached until end of day")
         return rate
 
     def parse_expiration_date(

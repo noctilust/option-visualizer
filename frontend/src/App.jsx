@@ -497,6 +497,16 @@ function App() {
                 </div>
               )}
 
+              {/* Data delay disclaimer */}
+              {marketData && (
+                <div className="flex items-center gap-2 text-xs text-muted-foreground mt-2">
+                  <svg className="w-3.5 h-3.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                  </svg>
+                  <span>Market data is delayed by approximately 15 minutes (source: Yahoo Finance)</span>
+                </div>
+              )}
+
               {/* Pricing Mode Toggle */}
               {symbol && symbol.trim() !== '' && (
                 <div className="flex items-center gap-4 pt-2">
@@ -516,13 +526,39 @@ function App() {
             </div>
           </div>
 
-          {/* Step 2: Add Positions */}
-          <div className="bg-card border border-border rounded-xl shadow-sm p-4 md:p-5">
-            <h2 className="text-xl font-semibold mb-4">2. Add Positions</h2>
-            <UploadSection onFileSelect={handleFileSelect} onManualEntry={handleManualEntry} resetKey={uploadResetKey} />
-            {loading && <p className="text-center text-muted-foreground animate-pulse">Processing image...</p>}
-            {error && <p className="text-center text-destructive">{error}</p>}
-          </div>
+          {/* Step 2: Add Positions - Only show after market data is fetched */}
+          {symbol && symbol.trim() !== '' && marketData && marketData.iv_rank !== null && marketData.iv_rank !== undefined ? (
+            <div className="bg-card border border-border rounded-xl shadow-sm p-4 md:p-5 animate-in fade-in slide-in-from-bottom-4 duration-500">
+              <h2 className="text-xl font-semibold mb-4">2. Add Positions</h2>
+              <UploadSection onFileSelect={handleFileSelect} onManualEntry={handleManualEntry} resetKey={uploadResetKey} />
+              {loading && <p className="text-center text-muted-foreground animate-pulse">Processing image...</p>}
+              {error && <p className="text-center text-destructive">{error}</p>}
+            </div>
+          ) : (
+            !symbol || symbol.trim() === '' ? (
+              <div className="bg-muted/30 border border-dashed border-border rounded-xl shadow-sm p-6 md:p-8 text-center">
+                <h2 className="text-xl font-semibold mb-2 text-muted-foreground">2. Add Positions</h2>
+                <p className="text-muted-foreground">
+                  Enter a stock symbol above to continue
+                </p>
+              </div>
+            ) : loadingMarketData ? (
+              <div className="bg-muted/30 border border-dashed border-border rounded-xl shadow-sm p-6 md:p-8 text-center">
+                <h2 className="text-xl font-semibold mb-2 text-muted-foreground">2. Add Positions</h2>
+                <div className="flex items-center justify-center gap-3">
+                  <Loader2 className="h-5 w-5 animate-spin text-primary" />
+                  <p className="text-muted-foreground">Loading market data...</p>
+                </div>
+              </div>
+            ) : (
+              <div className="bg-muted/30 border border-dashed border-border rounded-xl shadow-sm p-6 md:p-8 text-center">
+                <h2 className="text-xl font-semibold mb-2 text-muted-foreground">2. Add Positions</h2>
+                <p className="text-muted-foreground">
+                  Unable to fetch market data for "{symbol}". Please try a different symbol.
+                </p>
+              </div>
+            )
+          )}
 
           {positions.length > 0 && (
             <>
