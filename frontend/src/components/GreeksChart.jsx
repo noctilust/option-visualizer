@@ -75,7 +75,7 @@ const GreeksChart = ({ portfolioGreeks }) => {
                             className="bg-card border rounded-lg p-4 hover:shadow-md transition-shadow"
                         >
                             <div className="flex items-start justify-between mb-2">
-                                <h4 className="text-sm font-medium text-muted-foreground uppercase">
+                                <h4 className="text-sm font-medium uppercase" style={{ color: info.color }}>
                                     {info.label}
                                 </h4>
                             </div>

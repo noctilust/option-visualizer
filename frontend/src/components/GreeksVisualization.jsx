@@ -265,25 +265,6 @@ const GreeksVisualization = ({ chartData, portfolioGreeks, marketData }) => {
                 </div>
             )}
 
-            {/* Greeks Summary at Current Price */}
-            {portfolioGreeks && currentPrice && (
-                <div className="bg-muted/30 border rounded-lg p-4">
-                    <h4 className="text-sm font-semibold mb-3">Current Position Greeks (at ${currentPrice.toFixed(2)})</h4>
-                    <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-sm">
-                        {Object.entries(greekConfig).map(([key, config]) => (
-                            <div key={key}>
-                                <span className="font-medium" style={{ color: config.color }}>
-                                    {config.label}:
-                                </span>
-                                <span className="ml-2 font-mono">
-                                    {portfolioGreeks[key]?.toFixed(key === 'gamma' ? 4 : key === 'delta' || key === 'vega' ? 3 : 2) || 'N/A'}
-                                </span>
-                            </div>
-                        ))}
-                    </div>
-                </div>
-            )}
-
             {/* Educational Guide */}
             <details className="bg-card border rounded-lg p-4">
                 <summary className="cursor-pointer text-sm font-medium hover:text-primary">
