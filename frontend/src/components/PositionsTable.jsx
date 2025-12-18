@@ -1,10 +1,12 @@
-import React from 'react';
+import React, { useRef } from 'react';
 import { Trash2, Plus } from 'lucide-react';
 
 let nextId = 1;
 export const generateId = () => `pos_${nextId++}_${Date.now()}`;
 
 const PositionsTable = ({ positions, setPositions, greeksData = null, showGreeks = false }) => {
+    const ignoreMouseUp = useRef(false);
+
     const handleRemove = (id) => {
         const newPositions = positions.filter((pos) => pos.id !== id);
         setPositions(newPositions);
@@ -107,8 +109,13 @@ const PositionsTable = ({ positions, setPositions, greeksData = null, showGreeks
                                             value={pos.qty}
                                             onChange={(e) => handleChange(index, 'qty', e.target.value)}
                                             onFocus={(e) => {
-                                                if (e.target.value === '0' || e.target.value === 0) {
-                                                    handleChange(index, 'qty', '');
+                                                e.target.select();
+                                                ignoreMouseUp.current = true;
+                                            }}
+                                            onMouseUp={(e) => {
+                                                if (ignoreMouseUp.current) {
+                                                    e.preventDefault();
+                                                    ignoreMouseUp.current = false;
                                                 }
                                             }}
                                             onBlur={(e) => {
@@ -134,8 +141,13 @@ const PositionsTable = ({ positions, setPositions, greeksData = null, showGreeks
                                             value={pos.strike}
                                             onChange={(e) => handleChange(index, 'strike', e.target.value)}
                                             onFocus={(e) => {
-                                                if (e.target.value === '0' || e.target.value === 0) {
-                                                    handleChange(index, 'strike', '');
+                                                e.target.select();
+                                                ignoreMouseUp.current = true;
+                                            }}
+                                            onMouseUp={(e) => {
+                                                if (ignoreMouseUp.current) {
+                                                    e.preventDefault();
+                                                    ignoreMouseUp.current = false;
                                                 }
                                             }}
                                             onBlur={(e) => {

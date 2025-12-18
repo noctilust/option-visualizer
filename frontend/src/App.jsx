@@ -1,11 +1,11 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import UploadSection from './components/UploadSection';
 import InputSection from './components/InputSection';
 import PositionsTable, { generateId } from './components/PositionsTable';
 import GreeksChart from './components/GreeksChart';
 import GreeksVisualization from './components/GreeksVisualization';
 import ProbabilityMetrics from './components/ProbabilityMetrics';
-import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, ReferenceLine, ReferenceDot, Brush, Label } from 'recharts';
+import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, ReferenceLine, ReferenceDot } from 'recharts';
 import { Plus, Minus, RotateCcw, Sun, Moon, TrendingUp, Loader2 } from 'lucide-react';
 
 const API_BASE = import.meta.env.VITE_API_URL || '';
@@ -20,6 +20,12 @@ function App() {
   const [error, setError] = useState(null);
   const [zoomRange, setZoomRange] = useState({ startIndex: 0, endIndex: 0 });
   const [uploadResetKey, setUploadResetKey] = useState(0);
+
+  // Drag-to-pan state
+  const chartContainerRef = useRef(null);
+  const isDraggingRef = useRef(false);
+  const dragStartXRef = useRef(0);
+  const dragStartRangeRef = useRef({ startIndex: 0, endIndex: 0 });
 
   // Black-Scholes / Greeks state
   const [symbol, setSymbol] = useState('');
@@ -325,20 +331,16 @@ function App() {
     return points;
   }, [chartData]);
 
-  const gradientOffset = useMemo(() => {
+  // Compute visible chart data based on zoom range with profit/loss split
+  const visibleChartData = useMemo(() => {
+    if (!chartData.length) return [];
     const start = zoomRange.startIndex;
     const end = zoomRange.endIndex || chartData.length - 1;
-    const visibleData = chartData.slice(start, end + 1);
-
-    if (!visibleData.length) return 0;
-
-    const max = Math.max(...visibleData.map(d => d.pl));
-    const min = Math.min(...visibleData.map(d => d.pl));
-
-    if (max <= 0) return 0;
-    if (min >= 0) return 1;
-
-    return max / (max - min);
+    return chartData.slice(start, end + 1).map(d => ({
+      ...d,
+      profit: d.pl > 0 ? d.pl : 0,
+      loss: d.pl < 0 ? d.pl : 0
+    }));
   }, [chartData, zoomRange]);
 
   const handleStartOver = () => {
@@ -412,6 +414,76 @@ function App() {
       }
     }
   };
+
+  // Drag-to-pan handlers
+  const handleChartMouseDown = useCallback((e) => {
+    e.preventDefault(); // Prevent native drag/selection behavior
+    isDraggingRef.current = true;
+    dragStartXRef.current = e.clientX;
+    dragStartRangeRef.current = { ...zoomRange };
+
+    // Change cursor to grabbing
+    if (chartContainerRef.current) {
+      chartContainerRef.current.style.cursor = 'grabbing';
+    }
+  }, [zoomRange]);
+
+  const handleChartMouseMove = useCallback((e) => {
+    if (!isDraggingRef.current) return;
+
+    const rect = chartContainerRef.current?.getBoundingClientRect();
+    if (!rect) return;
+
+    const deltaX = e.clientX - dragStartXRef.current;
+    const chartWidth = rect.width;
+
+    // Calculate how many data points to shift based on drag distance
+    const { startIndex: startIdx, endIndex: endIdx } = dragStartRangeRef.current;
+    const visibleRange = endIdx - startIdx;
+
+    // Pixels per data point
+    const pixelsPerPoint = chartWidth / visibleRange;
+
+    // Calculate shift amount (negative because dragging left should show higher prices)
+    const shift = Math.round(-deltaX / pixelsPerPoint);
+
+    // Calculate new range with bounds checking
+    const totalPoints = chartData.length;
+    let newStart = startIdx + shift;
+    let newEnd = endIdx + shift;
+
+    // Clamp to valid range
+    if (newStart < 0) {
+      newEnd = newEnd - newStart;
+      newStart = 0;
+    }
+    if (newEnd > totalPoints - 1) {
+      newStart = newStart - (newEnd - (totalPoints - 1));
+      newEnd = totalPoints - 1;
+    }
+
+    // Ensure we don't go out of bounds
+    newStart = Math.max(0, newStart);
+    newEnd = Math.min(totalPoints - 1, newEnd);
+
+    if (newStart !== zoomRange.startIndex || newEnd !== zoomRange.endIndex) {
+      setZoomRange({ startIndex: newStart, endIndex: newEnd });
+    }
+  }, [chartData.length, zoomRange]);
+
+  const handleChartMouseUp = useCallback(() => {
+    isDraggingRef.current = false;
+    if (chartContainerRef.current) {
+      chartContainerRef.current.style.cursor = 'grab';
+    }
+  }, []);
+
+  const handleChartMouseLeave = useCallback(() => {
+    isDraggingRef.current = false;
+    if (chartContainerRef.current) {
+      chartContainerRef.current.style.cursor = 'grab';
+    }
+  }, []);
 
   return (
     <div className="min-h-screen bg-background text-foreground font-sans selection:bg-primary selection:text-primary-foreground">
@@ -621,9 +693,17 @@ function App() {
                 </div>
               </div>
 
-              <div className="h-[350px] w-full">
+              <div
+                ref={chartContainerRef}
+                className="h-[420px] w-full select-none"
+                style={{ cursor: 'grab' }}
+                onMouseDown={handleChartMouseDown}
+                onMouseMove={handleChartMouseMove}
+                onMouseUp={handleChartMouseUp}
+                onMouseLeave={handleChartMouseLeave}
+              >
                 <ResponsiveContainer width="100%" height="100%">
-                  <AreaChart data={chartData} margin={{ top: 20, right: 0, left: 0, bottom: 40 }}>
+                  <AreaChart data={visibleChartData} margin={{ top: 20, right: 0, left: 0, bottom: 10 }}>
                     <CartesianGrid stroke="#525252" vertical={false} />
                     {/* Vertical grid lines at even prices with lighter gray */}
                     {xAxisTicks.map((tick, index) => (
@@ -638,7 +718,7 @@ function App() {
                     <XAxis
                       dataKey="price"
                       type="number"
-                      domain={['auto', 'auto']}
+                      domain={['dataMin', 'dataMax']}
                       ticks={xAxisTicks}
                       allowDecimals={false}
                       stroke="#666"
@@ -651,28 +731,28 @@ function App() {
                       tick={false}
                       width={0}
                       domain={(() => {
-                        if (!chartData.length) return ['auto', 'auto'];
+                        if (!visibleChartData.length) return ['auto', 'auto'];
 
-                        const start = zoomRange.startIndex;
-                        const end = zoomRange.endIndex || chartData.length - 1;
-                        const visibleData = chartData.slice(start, end + 1);
+                        const plValues = visibleChartData.map(d => d.pl);
+                        const maxPL = Math.max(...plValues);
+                        const minPL = Math.min(...plValues);
+                        const range = maxPL - minPL;
 
-                        if (!visibleData.length) return ['auto', 'auto'];
+                        // Ensure we don't have a 0 range
+                        if (range === 0) return [minPL - 10, maxPL + 10];
 
-                        const maxAbs = Math.max(...visibleData.map(d => Math.abs(d.pl)));
-                        const limit = Math.ceil(maxAbs * 1.1); // Add 10% padding
-
-                        // Ensure we don't have a 0 range if everything is 0
-                        if (limit === 0) return [-10, 10];
-
-                        return [-limit, limit];
+                        // Add 10% padding on each side
+                        const padding = range * 0.1;
+                        return [minPL - padding, maxPL + padding];
                       })()}
                     />
                     <Tooltip
                       content={({ active, payload, label }) => {
                         if (active && payload && payload.length) {
+                          // Get the actual P/L value from the data point
+                          const plValue = payload[0].payload.pl;
                           // Check if P/L is exactly 0 (breakeven point)
-                          const isBreakeven = payload[0].value === 0;
+                          const isBreakeven = plValue === 0;
                           // Check if this price matches any position's strike
                           const matchingPositions = positions.filter(
                             pos => Math.abs(pos.strike - label) < 0.5
@@ -685,8 +765,8 @@ function App() {
                                   ${Number.isInteger(label) ? label : label.toFixed(2)}
                                 </span>
                                 <span className="text-gray-400">P/L:</span>
-                                <span className={`text-right font-medium ${payload[0].value >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
-                                  ${payload[0].value}
+                                <span className={`text-right font-medium ${plValue >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
+                                  ${plValue}
                                 </span>
                                 {isBreakeven && (
                                   <span className="col-span-2 text-center text-emerald-400 font-semibold mt-1 pt-1 border-t border-[#404040]">
@@ -862,35 +942,31 @@ function App() {
                         />
                       </>
                     )}
-                    <defs>
-                      <linearGradient id="splitColor" x1="0" y1="0" x2="0" y2="1">
-                        <stop offset={gradientOffset} stopColor="#10b981" stopOpacity={0.3} />
-                        <stop offset={gradientOffset} stopColor="#ef4444" stopOpacity={0.3} />
-                      </linearGradient>
-                    </defs>
                     <Area
                       type="monotone"
-                      dataKey="pl"
-                      stroke="url(#splitColor)"
-                      fill="url(#splitColor)"
+                      dataKey="profit"
+                      stroke="#10b981"
+                      fill="#10b981"
+                      fillOpacity={0.3}
                       strokeWidth={3}
+                      baseValue={0}
+                      isAnimationActive={false}
                     />
-                    <Brush
-                      dataKey="price"
-                      height={25}
-                      stroke={isDark ? 'hsl(217.2 32.6% 25%)' : 'hsl(214.3 31.8% 91.4%)'}
-                      fill={isDark ? 'hsl(222.2 84% 6%)' : 'hsl(210 40% 98%)'}
-                      tickFormatter={(value) => `$${Math.round(value)}`}
-                      startIndex={zoomRange.startIndex}
-                      endIndex={zoomRange.endIndex}
-                      onChange={({ startIndex, endIndex }) => setZoomRange({ startIndex, endIndex })}
-                      travellerWidth={10}
+                    <Area
+                      type="monotone"
+                      dataKey="loss"
+                      stroke="#ef4444"
+                      fill="#ef4444"
+                      fillOpacity={0.3}
+                      strokeWidth={3}
+                      baseValue={0}
+                      isAnimationActive={false}
                     />
                   </AreaChart>
                 </ResponsiveContainer>
               </div>
 
-              <div className="flex justify-center gap-2 mt-4">
+              <div className="flex justify-center gap-2 -mt-8 relative z-10">
                 <button
                   onClick={handleZoomIn}
                   className="p-2 bg-muted hover:bg-muted/80 rounded-md transition-colors text-muted-foreground"
