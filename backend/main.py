@@ -2,11 +2,17 @@ import os
 from fastapi import FastAPI, UploadFile, File, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from typing import List, Optional
+from datetime import date, datetime
 import image_parser
 import calculator
-from schemas import Position, CalculateRequest
+from schemas import Position, CalculateRequest, CalculateResponse, MarketData
+from market_data import MarketDataFetcher
 
 app = FastAPI()
+
+# Initialize market data fetcher
+cache_minutes = int(os.getenv('MARKET_DATA_CACHE_MINUTES', '10'))
+market_data_fetcher = MarketDataFetcher(cache_duration_minutes=cache_minutes)
 
 # CORS origins from environment variable, with sensible defaults for development
 default_origins = "http://localhost:5173,http://localhost:3000"
@@ -30,6 +36,43 @@ else:
     def read_root():
         return {"message": "Option Visualizer API"}
 
+@app.get("/market-data/{symbol}")
+async def get_market_data(symbol: str):
+    """
+    Fetch current market data for a symbol
+
+    Args:
+        symbol: Stock ticker symbol (e.g., 'AAPL')
+
+    Returns:
+        Market data including current price, implied volatility, and risk-free rate
+    """
+    try:
+        stock_price = market_data_fetcher.get_stock_price(symbol)
+
+        # Get implied volatility (will use HV as fallback)
+        iv = market_data_fetcher.get_implied_volatility(symbol)
+
+        # Get risk-free rate
+        risk_free_rate = market_data_fetcher.get_risk_free_rate()
+        
+        # Calculate IV Rank
+        iv_rank = market_data_fetcher.calculate_iv_rank(symbol, iv)
+
+        return {
+            "symbol": symbol.upper(),
+            "current_price": stock_price,
+            "implied_volatility": iv,
+            "iv_rank": iv_rank,
+            "risk_free_rate": risk_free_rate,
+            "timestamp": datetime.now().isoformat()
+        }
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to fetch market data for {symbol}: {str(e)}"
+        )
+
 @app.post("/upload")
 async def upload_image(file: UploadFile = File(...)):
     try:
@@ -43,11 +86,63 @@ async def upload_image(file: UploadFile = File(...)):
 
 @app.post("/calculate")
 def calculate_pl(request: CalculateRequest):
+    """
+    Calculate P/L for options positions with optional Black-Scholes pricing
+
+    If symbol is provided, fetches market data and calculates theoretical pricing and Greeks.
+    Otherwise, falls back to intrinsic value calculation (backward compatible).
+    """
     try:
         # Convert Pydantic models to dicts for the calculator
         positions_dicts = [p.model_dump() for p in request.positions]
-        data = calculator.calculate_pl(positions_dicts, request.credit)
-        return {"data": data}
+
+        # Fetch market data if symbol is provided
+        market_data = None
+        if request.symbol:
+            try:
+                # Get market data for Black-Scholes calculation
+                stock_price = market_data_fetcher.get_stock_price(request.symbol)
+                iv = market_data_fetcher.get_implied_volatility(request.symbol)
+                risk_free_rate = market_data_fetcher.get_risk_free_rate()
+
+                market_data = {
+                    'symbol': request.symbol.upper(),
+                    'current_price': stock_price,
+                    'implied_volatility': iv,
+                    'iv_rank': market_data_fetcher.calculate_iv_rank(request.symbol, iv),
+                    'risk_free_rate': risk_free_rate,
+                    'timestamp': datetime.now()
+                }
+            except Exception as e:
+                # If market data fetch fails, log but continue with intrinsic value
+                print(f"Warning: Could not fetch market data for {request.symbol}: {e}")
+                market_data = None
+
+        # Determine current date for DTE calculation
+        current_date = None
+        if request.current_date:
+            try:
+                current_date = date.fromisoformat(request.current_date)
+            except ValueError:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Invalid date format: {request.current_date}. Use YYYY-MM-DD"
+                )
+        else:
+            current_date = date.today()
+
+        # Calculate P/L with new calculator interface
+        result = calculator.calculate_pl(
+            positions_dicts,
+            request.credit,
+            market_data=market_data,
+            current_date=current_date,
+            use_theoretical_pricing=request.use_theoretical_pricing
+        )
+
+        # Return result (backward compatible: if no market data, returns simple format)
+        return result
+
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 

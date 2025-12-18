@@ -45,10 +45,9 @@ class TestPosition:
         assert "Quantity cannot be zero" in str(exc_info.value)
 
     def test_empty_expiration(self):
-        """Empty expiration should raise ValidationError"""
-        with pytest.raises(ValidationError) as exc_info:
-            Position(qty=1, expiration="", strike=100.0, type="C")
-        assert "expiration" in str(exc_info.value)
+        """Empty expiration should be accepted and default to 'N/A' (optional for manual entry)"""
+        position = Position(qty=1, expiration="", strike=100.0, type="C")
+        assert position.expiration == ""  # Empty string is accepted
 
 
 class TestCalculateRequest:

@@ -1,0 +1,334 @@
+import React, { useState } from 'react';
+import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend, ReferenceLine, ReferenceDot } from 'recharts';
+import { TrendingUp, Activity } from 'lucide-react';
+
+const GreeksVisualization = ({ chartData, portfolioGreeks, marketData }) => {
+    const [selectedGreeks, setSelectedGreeks] = useState({
+        delta: true,
+        gamma: false,
+        theta: false,
+        vega: false
+    });
+
+    if (!chartData || chartData.length === 0) {
+        return null;
+    }
+
+    // Greek configurations
+    const greekConfig = {
+        delta: {
+            label: 'Delta',
+            color: '#3b82f6',
+            description: 'Position delta vs stock price',
+            yAxisLabel: 'Delta'
+        },
+        gamma: {
+            label: 'Gamma',
+            color: '#8b5cf6',
+            description: 'Position gamma vs stock price',
+            yAxisLabel: 'Gamma'
+        },
+        theta: {
+            label: 'Theta',
+            color: '#ef4444',
+            description: 'Daily theta vs stock price',
+            yAxisLabel: 'Theta ($/day)'
+        },
+        vega: {
+            label: 'Vega',
+            color: '#10b981',
+            description: 'Vega vs stock price',
+            yAxisLabel: 'Vega (per 1% IV)'
+        }
+    };
+
+    const toggleGreek = (greek) => {
+        setSelectedGreeks(prev => ({
+            ...prev,
+            [greek]: !prev[greek]
+        }));
+    };
+
+    // Check if we have Greeks data in chartData
+    const hasGreeksData = chartData.some(d =>
+        d.delta !== undefined ||
+        d.gamma !== undefined ||
+        d.theta !== undefined ||
+        d.vega !== undefined
+    );
+
+    if (!hasGreeksData) {
+        return (
+            <div className="w-full space-y-4">
+                <h3 className="text-lg font-medium">Greeks Visualization</h3>
+                <div className="bg-muted/30 border rounded-lg p-6 text-center">
+                    <Activity className="w-12 h-12 mx-auto mb-3 text-muted-foreground opacity-50" />
+                    <p className="text-muted-foreground">
+                        Enter a stock symbol to enable Greeks visualization
+                    </p>
+                </div>
+            </div>
+        );
+    }
+
+    // Get current stock price for reference line
+    const currentPrice = marketData?.current_price;
+
+    // Count selected Greeks
+    const selectedCount = Object.values(selectedGreeks).filter(Boolean).length;
+
+    return (
+        <div className="w-full space-y-4">
+            <div className="flex items-center justify-between">
+                <h3 className="text-lg font-medium flex items-center gap-2">
+                    <TrendingUp className="w-5 h-5" />
+                    Greeks vs Stock Price
+                </h3>
+            </div>
+
+            {/* Greek Selector Buttons */}
+            <div className="flex flex-wrap gap-2">
+                {Object.entries(greekConfig).map(([key, config]) => (
+                    <button
+                        key={key}
+                        onClick={() => toggleGreek(key)}
+                        className={`px-4 py-2 rounded-lg border-2 transition-all font-medium text-sm ${selectedGreeks[key]
+                            ? 'border-current shadow-md scale-105'
+                            : 'border-border hover:border-current opacity-60 hover:opacity-100'
+                            }`}
+                        style={{
+                            color: selectedGreeks[key] ? config.color : undefined,
+                            backgroundColor: selectedGreeks[key] ? `${config.color}15` : undefined
+                        }}
+                        title={config.description}
+                    >
+                        {config.label}
+                    </button>
+                ))}
+            </div>
+
+            {selectedCount === 0 && (
+                <div className="bg-muted/30 border rounded-lg p-4 text-center text-sm text-muted-foreground">
+                    Select at least one Greek to display the chart
+                </div>
+            )}
+
+            {selectedCount > 0 && (
+                <div className="bg-card border rounded-lg p-4">
+                    <ResponsiveContainer width="100%" height={400}>
+                        <LineChart
+                            data={chartData}
+                            margin={{ top: 5, right: 30, left: 20, bottom: 5 }}
+                        >
+                            <CartesianGrid strokeDasharray="3 3" opacity={0.1} />
+                            <XAxis
+                                dataKey="price"
+                                label={{ value: 'Stock Price ($)', position: 'insideBottom', offset: -5 }}
+                                tickFormatter={(value) => `$${value}`}
+                            />
+                            <YAxis
+                                label={{
+                                    value: selectedCount === 1
+                                        ? greekConfig[Object.keys(selectedGreeks).find(k => selectedGreeks[k])].yAxisLabel
+                                        : 'Greek Value',
+                                    angle: -90,
+                                    position: 'insideLeft'
+                                }}
+                            />
+                            <Tooltip
+                                formatter={(value, name) => {
+                                    if (value === null || value === undefined) return ['N/A', name];
+                                    return [value.toFixed(4), name];
+                                }}
+                                labelFormatter={(label) => `Stock Price: $${label}`}
+                                contentStyle={{
+                                    backgroundColor: 'var(--card)',
+                                    border: '1px solid var(--border)',
+                                    borderRadius: '8px'
+                                }}
+                            />
+                            <Legend />
+
+                            {/* Current price reference line with styled indicator */}
+                            {currentPrice && (
+                                <>
+                                    <ReferenceLine
+                                        x={currentPrice}
+                                        stroke="#10b981"
+                                        strokeWidth={1}
+                                        strokeDasharray="4 2"
+                                    />
+                                    <ReferenceDot
+                                        x={currentPrice}
+                                        y={chartData.find(d => Math.abs(d.price - currentPrice) < 1)?.delta || 0}
+                                        r={0}
+                                        label={{
+                                            content: ({ viewBox }) => {
+                                                const { x, y } = viewBox;
+                                                return (
+                                                    <g>
+                                                        {/* Vertical line extension below point */}
+                                                        <line
+                                                            x1={x}
+                                                            y1={y}
+                                                            x2={x}
+                                                            y2={y + 25}
+                                                            stroke="#10b981"
+                                                            strokeWidth={1}
+                                                        />
+                                                        {/* Green dot with white stroke */}
+                                                        <circle
+                                                            cx={x}
+                                                            cy={y + 25}
+                                                            r={5}
+                                                            fill="#10b981"
+                                                            stroke="#fff"
+                                                            strokeWidth={2}
+                                                        />
+                                                        {/* Price label below dot */}
+                                                        <text
+                                                            x={x}
+                                                            y={y + 42}
+                                                            textAnchor="middle"
+                                                            fill="#10b981"
+                                                            fontSize={11}
+                                                            fontWeight={600}
+                                                        >
+                                                            {currentPrice.toFixed(1)}
+                                                        </text>
+                                                    </g>
+                                                );
+                                            }
+                                        }}
+                                    />
+                                </>
+                            )}
+
+                            {/* Render selected Greeks */}
+                            {selectedGreeks.delta && (
+                                <Line
+                                    type="monotone"
+                                    dataKey="delta"
+                                    stroke={greekConfig.delta.color}
+                                    strokeWidth={2}
+                                    dot={false}
+                                    name="Delta"
+                                    connectNulls={true}
+                                    isAnimationActive={false}
+                                />
+                            )}
+                            {selectedGreeks.gamma && (
+                                <Line
+                                    type="monotone"
+                                    dataKey="gamma"
+                                    stroke={greekConfig.gamma.color}
+                                    strokeWidth={2}
+                                    dot={false}
+                                    name="Gamma"
+                                    connectNulls={true}
+                                    isAnimationActive={false}
+                                />
+                            )}
+                            {selectedGreeks.theta && (
+                                <Line
+                                    type="monotone"
+                                    dataKey="theta"
+                                    stroke={greekConfig.theta.color}
+                                    strokeWidth={2}
+                                    dot={false}
+                                    name="Theta"
+                                    connectNulls={true}
+                                    isAnimationActive={false}
+                                />
+                            )}
+                            {selectedGreeks.vega && (
+                                <Line
+                                    type="monotone"
+                                    dataKey="vega"
+                                    stroke={greekConfig.vega.color}
+                                    strokeWidth={2}
+                                    dot={false}
+                                    name="Vega"
+                                    connectNulls={true}
+                                    isAnimationActive={false}
+                                />
+                            )}
+                        </LineChart>
+                    </ResponsiveContainer>
+
+                    {currentPrice && (
+                        <div className="mt-2 flex items-center justify-center gap-2 text-xs">
+                            <span className="inline-flex items-center gap-1.5">
+                                <span className="w-2 h-2 rounded-full bg-emerald-500"></span>
+                                <span className="text-emerald-500 font-semibold">${currentPrice.toFixed(2)}</span>
+                            </span>
+                            <span className="text-muted-foreground">Current Price</span>
+                        </div>
+                    )}
+                </div>
+            )}
+
+            {/* Greeks Summary at Current Price */}
+            {portfolioGreeks && currentPrice && (
+                <div className="bg-muted/30 border rounded-lg p-4">
+                    <h4 className="text-sm font-semibold mb-3">Current Position Greeks (at ${currentPrice.toFixed(2)})</h4>
+                    <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-sm">
+                        {Object.entries(greekConfig).map(([key, config]) => (
+                            <div key={key}>
+                                <span className="font-medium" style={{ color: config.color }}>
+                                    {config.label}:
+                                </span>
+                                <span className="ml-2 font-mono">
+                                    {portfolioGreeks[key]?.toFixed(key === 'gamma' ? 4 : key === 'delta' || key === 'vega' ? 3 : 2) || 'N/A'}
+                                </span>
+                            </div>
+                        ))}
+                    </div>
+                </div>
+            )}
+
+            {/* Educational Guide */}
+            <details className="bg-card border rounded-lg p-4">
+                <summary className="cursor-pointer text-sm font-medium hover:text-primary">
+                    📈 Understanding Greeks Curves (Click to expand)
+                </summary>
+                <div className="mt-4 space-y-3 text-sm text-left">
+                    <div className="flex">
+                        <span className="font-semibold text-blue-600 dark:text-blue-400 shrink-0 w-16">Delta:</span>
+                        <div className="text-muted-foreground leading-relaxed">
+                            Shows how position delta changes with stock price.<br />
+                            Long calls: delta increases as stock rises (approaches 1).<br />
+                            Long puts: delta becomes less negative (approaches 0) as stock rises.
+                        </div>
+                    </div>
+                    <div className="flex">
+                        <span className="font-semibold text-purple-600 dark:text-purple-400 shrink-0 w-16">Gamma:</span>
+                        <div className="text-muted-foreground leading-relaxed">
+                            Shows the rate of delta change.<br />
+                            Peaks at-the-money (ATM) for single options.<br />
+                            High gamma = delta changes rapidly with small stock moves.
+                        </div>
+                    </div>
+                    <div className="flex">
+                        <span className="font-semibold text-red-600 dark:text-red-400 shrink-0 w-16">Theta:</span>
+                        <div className="text-muted-foreground leading-relaxed">
+                            Shows daily time decay at different stock prices.<br />
+                            Most negative (worst) near ATM for long options.<br />
+                            Short options have positive theta (earn from time decay).
+                        </div>
+                    </div>
+                    <div className="flex">
+                        <span className="font-semibold text-green-600 dark:text-green-400 shrink-0 w-16">Vega:</span>
+                        <div className="text-muted-foreground leading-relaxed">
+                            Shows sensitivity to volatility changes at different prices.<br />
+                            Usually highest near ATM.<br />
+                            Long options = benefit from IV increase, Short = benefit from IV decrease.
+                        </div>
+                    </div>
+                </div>
+            </details>
+        </div>
+    );
+};
+
+export default GreeksVisualization;

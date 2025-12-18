@@ -129,7 +129,7 @@ class TestCalculateEndpoint:
         assert response.status_code == 422
 
     def test_calculate_empty_expiration(self):
-        """Empty expiration should return 422"""
+        """Empty expiration should be accepted (optional for manual entry)"""
         response = client.post(
             "/calculate",
             json={
@@ -139,7 +139,10 @@ class TestCalculateEndpoint:
                 "credit": 100.0
             }
         )
-        assert response.status_code == 422
+        assert response.status_code == 200
+        data = response.json()
+        assert "data" in data
+        assert len(data["data"]) > 0
 
 
 class TestRootEndpoint:
