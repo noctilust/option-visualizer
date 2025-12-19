@@ -1,7 +1,9 @@
 """
 Market Data Fetcher for Options Visualizer
-Fetches stock prices, implied volatility, and risk-free rates
-Uses yfinance as primary source with Alpha Vantage as fallback
+
+Data Sources:
+- Tastytrade API: IV Rank, IV Percentile (requires OAuth credentials)
+- Yahoo Finance: Stock prices, historical volatility, risk-free rate
 """
 
 import os
@@ -11,6 +13,8 @@ import logging
 
 import yfinance as yf
 import numpy as np
+
+from tastytrade_client import get_tastytrade_client
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -33,6 +37,9 @@ class MarketDataFetcher:
         # Configuration
         self.default_risk_free_rate = float(os.getenv('DEFAULT_RISK_FREE_RATE', '0.045'))
         self.default_iv = float(os.getenv('DEFAULT_IMPLIED_VOLATILITY', '0.25'))
+        
+        # Initialize Tastytrade client for accurate IV Rank
+        self._tastytrade = get_tastytrade_client()
 
     def _is_cache_valid(self, cache_key: str) -> bool:
         """Check if cached data is still valid"""
@@ -83,7 +90,7 @@ class MarketDataFetcher:
             return cached_price
 
         try:
-            # Try yfinance first
+            # Fetch from Yahoo Finance
             ticker = yf.Ticker(symbol)
 
             # Get current price from fast_info
@@ -251,13 +258,14 @@ class MarketDataFetcher:
 
     def calculate_iv_rank(self, symbol: str, current_iv: float) -> Optional[float]:
         """
-        Calculate IV Rank (IV Percentile) based on 52-week historical volatility range
+        Calculate IV Rank for a symbol.
         
-        IV Rank = (Current IV - 52-week Low IV) / (52-week High IV - 52-week Low IV)
+        Uses Tastytrade API for accurate IV Rank when credentials are available.
+        Falls back to historical volatility-based approximation otherwise.
         
         Args:
             symbol: Stock ticker symbol
-            current_iv: Current implied volatility (as decimal)
+            current_iv: Current implied volatility (as decimal) - used for fallback
             
         Returns:
             IV Rank as percentage (0-100), or None if calculation fails
@@ -266,6 +274,26 @@ class MarketDataFetcher:
         cached_rank = self._get_from_cache(cache_key)
         if cached_rank is not None:
             return cached_rank
+        
+        # Try Tastytrade first (provides accurate IV Rank)
+        if self._tastytrade.is_enabled:
+            metrics = self._tastytrade.get_market_metrics(symbol)
+            if metrics and metrics.get('iv_rank') is not None:
+                iv_rank = metrics['iv_rank']
+                self._set_cache(cache_key, float(iv_rank))
+                logger.info(f"Tastytrade IV Rank for {symbol}: {iv_rank:.1f}%")
+                return float(iv_rank)
+        
+        # Fallback: Calculate from historical volatility range
+        return self._calculate_iv_rank_from_hv(symbol, current_iv)
+    
+    def _calculate_iv_rank_from_hv(self, symbol: str, current_iv: float) -> Optional[float]:
+        """
+        Fallback IV Rank calculation using historical volatility range.
+        
+        Note: This is an approximation since it uses HV instead of actual IV history.
+        """
+        cache_key = f"iv_rank_hv_{symbol}"
         
         try:
             ticker = yf.Ticker(symbol)
@@ -299,7 +327,7 @@ class MarketDataFetcher:
             iv_rank = max(0, min(100, iv_rank))
             
             self._set_cache(cache_key, float(iv_rank))
-            logger.info(f"Calculated IV Rank for {symbol}: {iv_rank:.1f}%")
+            logger.info(f"Calculated HV-based IV Rank for {symbol}: {iv_rank:.1f}% (approximation)")
             return float(iv_rank)
             
         except Exception as e:

@@ -1,151 +1,34 @@
 # Option Visualizer Backend
 
-FastAPI backend for the Option Visualizer application. Provides OCR functionality for parsing options screenshots and P/L calculation.
-
-## Prerequisites
-
-- Python 3.12+
-- [uv](https://docs.astral.sh/uv/) package manager
-- [Google AI API Key](https://makersuite.google.com/app/apikey) for OCR
+FastAPI backend for options P/L calculation and market data.
 
 ## Setup
 
-### 1. Install Dependencies
-
 ```bash
+cp .env.example .env  # Add API keys
 uv sync
-```
-
-### 2. Configure Environment
-
-Create a `.env` file (or copy from `.env.example`):
-
-```bash
-GOOGLE_API_KEY=your_api_key_here
-CORS_ORIGINS=http://localhost:5173,http://localhost:3000
-```
-
-| Variable | Description | Default |
-|----------|-------------|---------|
-| `GOOGLE_API_KEY` | Google AI API key for Gemini OCR | Required |
-| `CORS_ORIGINS` | Allowed CORS origins (comma-separated) | `http://localhost:5173,http://localhost:3000` |
-
-## Running the Server
-
-### Development
-
-```bash
 uv run uvicorn main:app --reload --port 8000
 ```
 
-The server will be available at [http://localhost:8000](http://localhost:8000).
+## Environment Variables
 
-### Production
-
-```bash
-uv run uvicorn main:app --host 0.0.0.0 --port 8000
-```
+| Variable | Description |
+|----------|-------------|
+| `GOOGLE_API_KEY` | Google AI API key for OCR |
+| `TASTYTRADE_CLIENT_SECRET` | Tastytrade OAuth client secret |
+| `TASTYTRADE_REFRESH_TOKEN` | Tastytrade OAuth refresh token |
 
 ## API Endpoints
 
-### `GET /`
-Health check endpoint.
-
-**Response:**
-```json
-{"message": "Option Visualizer API"}
-```
-
-### `POST /upload`
-Upload an options screenshot for OCR parsing.
-
-**Request:** `multipart/form-data` with `file` field containing the image.
-
-**Response:**
-```json
-{
-  "positions": [
-    {
-      "strike": 100.0,
-      "quantity": 1,
-      "option_type": "call"
-    }
-  ]
-}
-```
-
-### `POST /calculate`
-Calculate P/L data for a set of positions.
-
-**Request:**
-```json
-{
-  "positions": [
-    {
-      "qty": -1,
-      "strike": 100.0,
-      "type": "P",
-      "expiration": "Jan 16"
-    }
-  ],
-  "credit": 250.0
-}
-```
-
-| Field | Type | Required | Description |
-|-------|------|----------|-------------|
-| `qty` | int | Yes | Quantity (positive for long, negative for short) |
-| `strike` | float | Yes | Strike price (must be > 0) |
-| `type` | string | Yes | Option type: "C" (Call) or "P" (Put) |
-| `expiration` | string | No | Expiration date (defaults to "N/A") - informational only, not used in P/L calculation |
-| `credit` | float | Yes | Net credit/debit received (positive for credit, negative for debit) |
-
-> **Note:** The P/L chart shows the at-expiration payoff diagram. The expiration date field is for display purposes only and does not affect calculations.
-
-**Response:**
-```json
-{
-  "data": [
-    {"price": 90, "pl": -250},
-    {"price": 95, "pl": -250},
-    ...
-  ]
-}
-```
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| POST | `/upload` | OCR screenshot parsing |
+| POST | `/calculate` | P/L calculation |
+| GET | `/market-data/{symbol}` | Stock price, IV, IV Rank |
+| GET | `/symbols/search?q=` | Symbol autocomplete |
 
 ## Testing
 
-Run the test suite:
-
 ```bash
 uv run pytest
-```
-
-Run with verbose output:
-
-```bash
-uv run pytest -v
-```
-
-## Project Structure
-
-```
-backend/
-├── main.py          # FastAPI application & routes
-├── ocr.py           # Google Gemini OCR integration
-├── calculator.py    # P/L calculation logic
-├── schemas.py       # Pydantic request/response models
-├── test_main.py     # API endpoint tests
-├── test_schemas.py  # Schema validation tests
-├── pyproject.toml   # Project dependencies
-└── .env             # Environment variables (not in git)
-```
-
-## Docker
-
-Build and run with Docker:
-
-```bash
-docker build -t option-visualizer-backend .
-docker run -p 8000:8000 -e GOOGLE_API_KEY=your_key option-visualizer-backend
 ```

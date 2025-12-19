@@ -36,6 +36,35 @@ else:
     def read_root():
         return {"message": "Option Visualizer API"}
 
+
+
+@app.get("/symbols/search")
+async def search_symbols(q: str = ""):
+    """
+    Search for stock/ETF symbols using Tastytrade API.
+    
+    Returns matching US stocks and ETFs.
+    
+    Args:
+        q: Search query (e.g., 'AAPL' or 'Apple')
+    
+    Returns:
+        List of matching symbols with name, exchange, and type
+    """
+    if not q or len(q) < 1:
+        return {"results": []}
+    
+    try:
+        from tastytrade_client import get_tastytrade_client
+        
+        tastytrade = get_tastytrade_client()
+        results = tastytrade.search_symbols(q)
+        return {"results": results}
+        
+    except Exception as e:
+        print(f"Symbol search error: {e}")
+        return {"results": []}
+
 @app.get("/market-data/{symbol}")
 async def get_market_data(symbol: str):
     """

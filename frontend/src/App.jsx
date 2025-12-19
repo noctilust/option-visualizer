@@ -5,6 +5,7 @@ import PositionsTable, { generateId } from './components/PositionsTable';
 import GreeksChart from './components/GreeksChart';
 import GreeksVisualization from './components/GreeksVisualization';
 import ProbabilityMetrics from './components/ProbabilityMetrics';
+import SymbolAutocomplete from './components/SymbolAutocomplete';
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, ReferenceLine, ReferenceDot } from 'recharts';
 import { Plus, Minus, RotateCcw, Sun, Moon, TrendingUp, Loader2 } from 'lucide-react';
 
@@ -521,13 +522,10 @@ function App() {
                 <label htmlFor="symbol" className="block text-sm font-medium mb-2">
                   Enter the underlying stock ticker
                 </label>
-                <input
-                  id="symbol"
-                  type="text"
+                <SymbolAutocomplete
                   value={symbol}
-                  onChange={(e) => setSymbol(e.target.value.toUpperCase())}
-                  placeholder="TSLA"
-                  className="w-full max-w-md px-4 py-3 text-lg border rounded-lg bg-background focus:ring-2 focus:ring-primary focus:border-transparent transition-all uppercase"
+                  onChange={setSymbol}
+                  placeholder="Search for a stock or ETF..."
                 />
               </div>
 
@@ -575,7 +573,7 @@ function App() {
                   <svg className="w-3.5 h-3.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
                   </svg>
-                  <span>Market data is delayed by approximately 15 minutes (source: Yahoo Finance)</span>
+                  <span>IV Rank powered by Tastytrade • Price data may be delayed up to 15 minutes</span>
                 </div>
               )}
 
