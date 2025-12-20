@@ -26,7 +26,7 @@ interface UseCalculationReturn {
   setIsDebit: (isDebit: boolean) => void;
   chartData: ChartDataPoint[];
   setChartData: React.Dispatch<React.SetStateAction<ChartDataPoint[]>>;
-  calculating: boolean;
+  loadingStates: { chart: boolean; greeks: boolean };
   loading: boolean;
   setLoading: (loading: boolean) => void;
   error: string | null;
@@ -82,7 +82,13 @@ export function useCalculation({
   const [positions, setPositions] = useState<Position[]>([]);
   const [chartData, setChartData] = useState<ChartDataPoint[]>([]);
   const [loading, setLoading] = useState(false);
-  const [calculating, setCalculating] = useState(false);
+
+  // Granular loading states
+  const [loadingStates, setLoadingStates] = useState({
+    chart: false,
+    greeks: false,
+  });
+
   const [error, setError] = useState<string | null>(null);
   const [uploadResetKey, setUploadResetKey] = useState(0);
 
@@ -174,12 +180,12 @@ export function useCalculation({
       // Skip calculation if positions are incomplete (prevents 422 errors)
       if (!arePositionsValid(positions)) {
         console.log('⏸️  Skipping calculation - incomplete positions');
-        setCalculating(false);
+        setLoadingStates({ chart: false, greeks: false });
         return;
       }
 
       calculationInProgressRef.current = true;
-      setCalculating(true);
+      setLoadingStates({ chart: true, greeks: showGreeks });
 
       try {
         let creditValue = parseFloat(credit) || 0;
@@ -230,7 +236,7 @@ export function useCalculation({
           }
 
           console.log('✅ Cache data applied');
-          setCalculating(false);
+          setLoadingStates({ chart: false, greeks: false });
           calculationInProgressRef.current = false;
           return;
         }
@@ -281,11 +287,14 @@ export function useCalculation({
         }
 
         console.log('✅ State updated - chartData length:', data.data?.length || 0);
+
+        // Update loading states - chart is done, greeks might still be loading
+        setLoadingStates(prev => ({ ...prev, chart: false }));
       } catch (err) {
         console.error('❌ Calculation error:', err);
         // Don't show error here to avoid spamming while typing
       } finally {
-        setCalculating(false);
+        setLoadingStates({ chart: false, greeks: false });
         calculationInProgressRef.current = false;
       }
     };
@@ -310,7 +319,7 @@ export function useCalculation({
     setIsDebit,
     chartData,
     setChartData,
-    calculating,
+    loadingStates,
     loading,
     setLoading,
     error,

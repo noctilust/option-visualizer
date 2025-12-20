@@ -41,7 +41,7 @@ function App() {
     isDebit,
     setIsDebit,
     chartData,
-    calculating,
+    loadingStates,
     loading,
     error,
     useTheoreticalPricing,
@@ -249,15 +249,22 @@ function App() {
             </>
           )}
 
-          {/* Loading indicator */}
-          {calculating && positions.length > 0 && credit && (
+          {/* Loading indicator - granular states */}
+          {(loadingStates.chart || loadingStates.greeks) && positions.length > 0 && credit && (
             <div className="bg-card border border-border rounded-xl shadow-sm p-4 md:p-5 animate-in fade-in duration-300">
               <div className="flex items-center justify-center gap-3">
                 <Loader2 className="h-5 w-5 animate-spin text-primary" />
-                <span className="text-muted-foreground">Calculating P/L and fetching market data...</span>
+                <span className="text-muted-foreground">
+                  {loadingStates.chart && loadingStates.greeks && 'Calculating P/L and Greeks...'}
+                  {loadingStates.chart && !loadingStates.greeks && 'Calculating P/L...'}
+                  {!loadingStates.chart && loadingStates.greeks && 'Loading Greeks data...'}
+                </span>
               </div>
               <div className="mt-3 h-1.5 w-full bg-muted rounded-full overflow-hidden">
-                <div className="h-full bg-primary rounded-full animate-pulse" style={{ width: '60%' }} />
+                <div
+                  className="h-full bg-primary rounded-full animate-pulse transition-all"
+                  style={{ width: loadingStates.chart ? '60%' : '90%' }}
+                />
               </div>
             </div>
           )}
