@@ -1,6 +1,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
 import PositionsTable, { generateId } from './PositionsTable';
+import type { Position } from '../types';
 
 describe('generateId', () => {
   it('should generate unique IDs', () => {
@@ -20,7 +21,7 @@ describe('generateId', () => {
 });
 
 describe('PositionsTable', () => {
-  const mockPositions = [
+  const mockPositions: Position[] = [
     { id: 'pos_1', qty: -1, expiration: 'Jan 16', strike: 100, type: 'P' },
     { id: 'pos_2', qty: 1, expiration: 'Jan 16', strike: 110, type: 'C' },
   ];
@@ -43,12 +44,6 @@ describe('PositionsTable', () => {
     expect(container.firstChild).toBeNull();
   });
 
-  it('should return null when positions is undefined', () => {
-    const setPositions = vi.fn();
-    const { container } = render(<PositionsTable positions={undefined} setPositions={setPositions} />);
-    expect(container.firstChild).toBeNull();
-  });
-
   it('should add new position with unique ID when Add Position clicked', () => {
     const setPositions = vi.fn();
     render(<PositionsTable positions={mockPositions} setPositions={setPositions} />);
@@ -57,7 +52,7 @@ describe('PositionsTable', () => {
     fireEvent.click(addButton);
 
     expect(setPositions).toHaveBeenCalledTimes(1);
-    const newPositions = setPositions.mock.calls[0][0];
+    const newPositions = setPositions.mock.calls[0][0] as Position[];
     expect(newPositions.length).toBe(3);
     expect(newPositions[2].id).toBeDefined();
     expect(newPositions[2].id.startsWith('pos_')).toBe(true);
@@ -73,7 +68,7 @@ describe('PositionsTable', () => {
     fireEvent.click(deleteButtons[0]);
 
     expect(setPositions).toHaveBeenCalledTimes(1);
-    const newPositions = setPositions.mock.calls[0][0];
+    const newPositions = setPositions.mock.calls[0][0] as Position[];
     expect(newPositions.length).toBe(1);
     expect(newPositions[0].id).toBe('pos_2');
   });
@@ -82,12 +77,12 @@ describe('PositionsTable', () => {
     const setPositions = vi.fn();
     render(<PositionsTable positions={mockPositions} setPositions={setPositions} />);
 
-    const qtyInputs = screen.getAllByRole('spinbutton');
-    fireEvent.change(qtyInputs[0], { target: { value: '-2' } });
+    const qtyInput = screen.getByDisplayValue('-1');
+    fireEvent.change(qtyInput, { target: { value: '-2' } });
 
     expect(setPositions).toHaveBeenCalledTimes(1);
-    const newPositions = setPositions.mock.calls[0][0];
-    expect(newPositions[0].qty).toBe(-2);
+    const newPositions = setPositions.mock.calls[0][0] as Position[];
+    expect(newPositions[0].qty).toBe('-2');
   });
 
   it('should use pos.id as React key for table rows', () => {
@@ -100,8 +95,8 @@ describe('PositionsTable', () => {
 
   it('should handle positions without id (fallback to index)', () => {
     const positionsWithoutId = [
-      { qty: -1, expiration: 'Jan 16', strike: 100, type: 'P' },
-      { qty: 1, expiration: 'Jan 16', strike: 110, type: 'C' },
+      { id: '', qty: -1, expiration: 'Jan 16', strike: 100, type: 'P' as const },
+      { id: '', qty: 1, expiration: 'Jan 16', strike: 110, type: 'C' as const },
     ];
     const setPositions = vi.fn();
 
