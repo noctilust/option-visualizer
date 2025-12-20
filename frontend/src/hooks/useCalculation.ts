@@ -96,6 +96,9 @@ export function useCalculation({
   // Calculation in-progress guard to prevent concurrent calls
   const calculationInProgressRef = useRef(false);
 
+  // Request cache to deduplicate identical API calls
+  const requestCacheRef = useRef<Map<string, Promise<CalculateResponse>>>(new Map());
+
   // Validate positions are complete before sending to backend
   const arePositionsValid = useCallback((positions: Position[]): boolean => {
     return positions.every(pos =>
@@ -202,23 +205,68 @@ export function useCalculation({
           requestBody.use_theoretical_pricing = useTheoreticalPricing;
         }
 
-        const response = await fetch(`${API_BASE}/calculate`, {
+        // Generate cache key from request parameters
+        const cacheKey = JSON.stringify({
+          positions: requestBody.positions,
+          credit: requestBody.credit,
+          skip_greeks_curve: requestBody.skip_greeks_curve,
+          symbol: requestBody.symbol,
+          use_theoretical_pricing: requestBody.use_theoretical_pricing
+        });
+
+        // Check if request is already in progress or cached
+        if (requestCacheRef.current.has(cacheKey)) {
+          console.log('💾 Cache hit - reusing existing request');
+          const cachedPromise = requestCacheRef.current.get(cacheKey)!;
+          const data = await cachedPromise;
+
+          // Update state with cached data
+          setChartData(data.data || []);
+          setGreeksData(data.positions_with_greeks || null);
+          setPortfolioGreeks(data.portfolio_greeks || null);
+          setProbabilityMetrics(data.probability_metrics || null);
+          if (data.market_data) {
+            setMarketData(data.market_data);
+          }
+
+          console.log('✅ Cache data applied');
+          setCalculating(false);
+          calculationInProgressRef.current = false;
+          return;
+        }
+
+        // Create new request promise and cache it
+        const requestPromise = fetch(`${API_BASE}/calculate`, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
           },
           body: JSON.stringify(requestBody),
-        });
+        })
+          .then(async (response) => {
+            if (!response.ok) throw new Error('Calculation failed');
+            return response.json() as Promise<CalculateResponse>;
+          })
+          .then((data) => {
+            console.log('📊 Calculation response:', {
+              dataPoints: data.data?.length || 0,
+              hasGreeks: !!data.portfolio_greeks,
+              hasMarketData: !!data.market_data,
+              hasProbMetrics: !!data.probability_metrics
+            });
+            return data;
+          })
+          .catch((err) => {
+            // Remove from cache on error
+            requestCacheRef.current.delete(cacheKey);
+            throw err;
+          });
 
-        if (!response.ok) throw new Error('Calculation failed');
+        // Store in cache
+        requestCacheRef.current.set(cacheKey, requestPromise);
 
-        const data: CalculateResponse = await response.json();
-        console.log('📊 Calculation response:', {
-          dataPoints: data.data?.length || 0,
-          hasGreeks: !!data.portfolio_greeks,
-          hasMarketData: !!data.market_data,
-          hasProbMetrics: !!data.probability_metrics
-        });
+        // Await the request
+        const data = await requestPromise;
 
         setChartData(data.data || []);
 

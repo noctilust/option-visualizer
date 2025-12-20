@@ -7,6 +7,7 @@ import numpy as np
 from scipy.stats import norm
 from datetime import date
 from typing import List, Dict, Optional
+from functools import lru_cache
 import logging
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
@@ -39,6 +40,7 @@ def get_optimal_binomial_steps(days_to_expiration: int) -> int:
         return 100  # Long-dated: higher precision
 
 
+@lru_cache(maxsize=256)
 def calculate_d1_d2(stock_price: float, strike: float, time_to_expiration: float, risk_free_rate: float, volatility: float, dividend_yield: float = 0.0) -> tuple:
     """
     Calculate d1 and d2 for Black-Scholes formula with dividend yield

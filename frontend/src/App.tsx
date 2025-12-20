@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { useEffect, lazy, Suspense } from 'react';
 import { Sun, Moon, RotateCcw, TrendingUp, Loader2 } from 'lucide-react';
 
 // Hooks
@@ -7,15 +7,17 @@ import { useMarketData } from './hooks/useMarketData';
 import { useCalculation, generateId } from './hooks/useCalculation';
 import { useChartZoom } from './hooks/useChartZoom';
 
-// Components
+// Components - Always loaded
 import UploadSection from './components/UploadSection';
 import InputSection from './components/InputSection';
 import PositionsTable from './components/PositionsTable';
 import SymbolAutocomplete from './components/SymbolAutocomplete';
 import PLChart from './components/PLChart';
-import GreeksChart from './components/GreeksChart';
-import GreeksVisualization from './components/GreeksVisualization';
 import ProbabilityMetrics from './components/ProbabilityMetrics';
+
+// Components - Lazy loaded (only when Greeks are shown)
+const GreeksChart = lazy(() => import('./components/GreeksChart'));
+const GreeksVisualization = lazy(() => import('./components/GreeksVisualization'));
 
 function App() {
   // Theme hook
@@ -315,18 +317,32 @@ function App() {
               {/* Greeks Chart Section */}
               {showGreeks && portfolioGreeks && (
                 <div className="mt-8 pt-8 border-t">
-                  <GreeksChart portfolioGreeks={portfolioGreeks} />
+                  <Suspense fallback={
+                    <div className="flex items-center justify-center gap-2 py-8">
+                      <Loader2 className="h-5 w-5 animate-spin text-primary" />
+                      <span className="text-muted-foreground">Loading Greeks Chart...</span>
+                    </div>
+                  }>
+                    <GreeksChart portfolioGreeks={portfolioGreeks} />
+                  </Suspense>
                 </div>
               )}
 
               {/* Greeks Visualization Section */}
               {showGreeks && chartData.length > 0 && (
                 <div className="mt-8 pt-8 border-t">
-                  <GreeksVisualization
-                    chartData={chartData}
-                    portfolioGreeks={portfolioGreeks}
-                    marketData={marketData}
-                  />
+                  <Suspense fallback={
+                    <div className="flex items-center justify-center gap-2 py-8">
+                      <Loader2 className="h-5 w-5 animate-spin text-primary" />
+                      <span className="text-muted-foreground">Loading Greeks Visualization...</span>
+                    </div>
+                  }>
+                    <GreeksVisualization
+                      chartData={chartData}
+                      portfolioGreeks={portfolioGreeks}
+                      marketData={marketData}
+                    />
+                  </Suspense>
                 </div>
               )}
             </div>

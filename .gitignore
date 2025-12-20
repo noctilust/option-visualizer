@@ -9,3 +9,8 @@ venv/
 node_modules/
 dist/
 .DS_Store
+
+# Environment variables
+backend/.env
+frontend/.env
+*.env
