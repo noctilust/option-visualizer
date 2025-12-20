@@ -73,7 +73,10 @@ class MarketDataFetcher:
 
     def get_stock_price(self, symbol: str) -> float:
         """
-        Fetch current stock price for a symbol
+        Fetch current stock price for a symbol from Yahoo Finance.
+        
+        Note: May have 15-min delay during market hours.
+        Tastytrade requires DXLink streaming for real-time quotes (not implemented).
 
         Args:
             symbol: Stock ticker symbol (e.g., 'AAPL')
@@ -90,7 +93,6 @@ class MarketDataFetcher:
             return cached_price
 
         try:
-            # Fetch from Yahoo Finance
             ticker = yf.Ticker(symbol)
 
             # Get current price from fast_info

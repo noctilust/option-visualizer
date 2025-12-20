@@ -13,6 +13,7 @@ const SymbolAutocomplete = ({ value, onChange, onSelect, placeholder = "TSLA" })
     const inputRef = useRef(null);
     const dropdownRef = useRef(null);
     const debounceRef = useRef(null);
+    const listRef = useRef(null);
 
     // Sync input value with external value
     useEffect(() => {
@@ -35,7 +36,8 @@ const SymbolAutocomplete = ({ value, onChange, onSelect, placeholder = "TSLA" })
                 const data = await response.json();
                 setResults(data.results || []);
                 setIsOpen(data.results?.length > 0);
-                setHighlightedIndex(-1);
+                // Pre-select first item for immediate Enter selection
+                setHighlightedIndex(data.results?.length > 0 ? 0 : -1);
             }
         } catch (error) {
             console.error('Symbol search error:', error);
@@ -155,6 +157,19 @@ const SymbolAutocomplete = ({ value, onChange, onSelect, placeholder = "TSLA" })
         };
     }, []);
 
+    // Scroll highlighted item into view
+    useEffect(() => {
+        if (highlightedIndex >= 0 && listRef.current) {
+            const items = listRef.current.querySelectorAll('li');
+            if (items[highlightedIndex]) {
+                items[highlightedIndex].scrollIntoView({
+                    block: 'nearest',
+                    behavior: 'smooth'
+                });
+            }
+        }
+    }, [highlightedIndex]);
+
     return (
         <div className="relative w-full max-w-md">
             <div className="relative">
@@ -192,7 +207,7 @@ const SymbolAutocomplete = ({ value, onChange, onSelect, placeholder = "TSLA" })
                     ref={dropdownRef}
                     className="absolute z-50 w-full mt-1 bg-card border border-border rounded-lg shadow-lg overflow-hidden"
                 >
-                    <ul className="max-h-64 overflow-y-auto">
+                    <ul ref={listRef} className="max-h-64 overflow-y-auto">
                         {results.map((result, index) => (
                             <li
                                 key={result.symbol}
