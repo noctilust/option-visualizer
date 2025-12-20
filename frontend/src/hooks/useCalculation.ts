@@ -102,6 +102,12 @@ export function useCalculation({
   // Calculation in-progress guard to prevent concurrent calls
   const calculationInProgressRef = useRef(false);
 
+  // AbortController ref for cancelling stale requests
+  const abortControllerRef = useRef<AbortController | null>(null);
+
+  // Track positions fingerprint to detect significant strategy changes
+  const positionsFingerprintRef = useRef<string>('');
+
   // Request cache to deduplicate identical API calls
   const requestCacheRef = useRef<Map<string, Promise<CalculateResponse>>>(new Map());
 
@@ -162,10 +168,17 @@ export function useCalculation({
       return;
     }
 
+    // Cancel any previous in-flight request
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+    }
+    const abortController = new AbortController();
+    abortControllerRef.current = abortController;
+
     const calculatePL = async () => {
-      // Prevent concurrent calculations
-      if (calculationInProgressRef.current) {
-        console.log('⏭️  Skipping - calculation already in progress');
+      // Check if this request was cancelled before it started
+      if (abortController.signal.aborted) {
+        console.log('⏭️  Skipping - request was cancelled');
         return;
       }
 
@@ -248,6 +261,7 @@ export function useCalculation({
             'Content-Type': 'application/json',
           },
           body: JSON.stringify(requestBody),
+          signal: abortController.signal,
         })
           .then(async (response) => {
             if (!response.ok) throw new Error('Calculation failed');
@@ -291,17 +305,34 @@ export function useCalculation({
         // Update loading states - chart is done, greeks might still be loading
         setLoadingStates(prev => ({ ...prev, chart: false }));
       } catch (err) {
+        // Ignore abort errors - these are expected when cancelling stale requests
+        if (err instanceof Error && err.name === 'AbortError') {
+          console.log('🛑 Request aborted (newer request in progress)');
+          return;
+        }
         console.error('❌ Calculation error:', err);
         // Don't show error here to avoid spamming while typing
       } finally {
-        setLoadingStates({ chart: false, greeks: false });
+        // Only update loading states if this request wasn't aborted
+        if (!abortController.signal.aborted) {
+          setLoadingStates({ chart: false, greeks: false });
+        }
         calculationInProgressRef.current = false;
       }
     };
 
+    // Generate positions fingerprint to detect significant strategy changes
+    const newFingerprint = positions.map(p => `${p.strike}-${p.type}`).sort().join('|');
+    if (newFingerprint !== positionsFingerprintRef.current) {
+      // Strategy changed significantly - clear cache
+      requestCacheRef.current.clear();
+      positionsFingerprintRef.current = newFingerprint;
+      console.log('🔄 Strategy changed, cache cleared');
+    }
+
     // Smart debounce: give users time to finish typing multi-digit numbers
     const isComplete = arePositionsValid(positions);
-    const debounceTime = isComplete ? 500 : 800;
+    const debounceTime = isComplete ? 600 : 1000;
 
     const timeoutId = setTimeout(() => {
       calculatePL();

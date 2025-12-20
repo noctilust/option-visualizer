@@ -29,9 +29,26 @@ export function useChartZoom({ chartData, positions }: UseChartZoomProps): UseCh
   const dragStartXRef = useRef(0);
   const dragStartRangeRef = useRef<ZoomRange>({ startIndex: 0, endIndex: 0 });
 
+  // Track positions fingerprint to only reset zoom when strategy fundamentally changes
+  const positionsFingerprintRef = useRef<string>('');
+  const hasInitializedRef = useRef(false);
+
   // Reset zoom when chart data changes, with smart default based on profit zone
+  // Only reset when positions actually change, not on every recalculation
   useEffect(() => {
-    if (chartData.length > 0) {
+    if (chartData.length === 0) return;
+
+    // Generate a fingerprint of current positions (strikes and types)
+    const newFingerprint = positions.map(p => `${p.strike}-${p.type}-${p.qty}`).sort().join('|');
+    const positionsChanged = newFingerprint !== positionsFingerprintRef.current;
+
+    // Only reset zoom if:
+    // 1. This is the first time we're getting chart data (initial load)
+    // 2. The positions have fundamentally changed (different strikes/types)
+    if (!hasInitializedRef.current || positionsChanged) {
+      positionsFingerprintRef.current = newFingerprint;
+      hasInitializedRef.current = true;
+
       // Find profit zone indices
       const firstProfitIndex = chartData.findIndex(d => d.pl > 0);
       const lastProfitIndex = chartData.findLastIndex(d => d.pl > 0);
@@ -65,6 +82,8 @@ export function useChartZoom({ chartData, positions }: UseChartZoomProps): UseCh
         setZoomRange({ startIndex: 0, endIndex: chartData.length - 1 });
       }
     }
+    // Note: When only credit changes, we intentionally DON'T reset zoom
+    // The user's current zoom level is preserved
   }, [chartData, positions]);
 
   const xAxisTicks = useMemo(() => {
