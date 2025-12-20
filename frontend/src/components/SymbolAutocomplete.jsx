@@ -76,7 +76,7 @@ const SymbolAutocomplete = ({ value, onChange, onSelect, placeholder = "TSLA" })
         setIsOpen(false);
         setResults([]);
         setHasSearched(false);
-        inputRef.current?.focus();
+        inputRef.current?.blur();
     };
 
     // Clear input
@@ -123,6 +123,7 @@ const SymbolAutocomplete = ({ value, onChange, onSelect, placeholder = "TSLA" })
                     setHasSearched(false);
                     onChange?.(inputValue.trim().toUpperCase());
                     onSelect?.({ symbol: inputValue.trim().toUpperCase() });
+                    inputRef.current?.blur();
                 }
                 break;
             case 'Escape':
