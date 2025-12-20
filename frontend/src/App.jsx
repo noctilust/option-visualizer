@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import UploadSection from './components/UploadSection';
 import InputSection from './components/InputSection';
-import PositionsTable, { generateId } from './components/PositionsTable';
+import PositionsTable, { generateId, DEFAULT_EXPIRATION } from './components/PositionsTable';
 import GreeksChart from './components/GreeksChart';
 import GreeksVisualization from './components/GreeksVisualization';
 import ProbabilityMetrics from './components/ProbabilityMetrics';
@@ -199,7 +199,7 @@ function App() {
   };
 
   const handleManualEntry = () => {
-    setPositions([{ id: generateId(), qty: -1, expiration: '', strike: 0, type: 'P' }]);
+    setPositions([{ id: generateId(), qty: -1, expiration: DEFAULT_EXPIRATION, strike: 0, type: 'P' }]);
   };
 
   // Fetch market data when symbol changes

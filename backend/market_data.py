@@ -441,7 +441,14 @@ class MarketDataFetcher:
         except ValueError:
             pass
 
-        # Try "Jan 16" format
+        # Try "Jan 17 26" format (month day short-year)
+        try:
+            parsed = datetime.strptime(expiration_str, '%b %d %y')
+            return parsed.date()
+        except ValueError:
+            pass
+
+        # Try "Jan 16" format (assumes current or next year)
         try:
             # Parse month and day
             parsed = datetime.strptime(expiration_str, '%b %d')
@@ -462,7 +469,7 @@ class MarketDataFetcher:
         # If all parsing attempts fail
         raise ValueError(
             f"Could not parse expiration date: '{expiration_str}'. "
-            f"Supported formats: 'Jan 16', '2025-01-16', '1/16/2025', '01/16/25'"
+            f"Supported formats: 'Jan 17 26', 'Jan 16', '2025-01-16', '1/16/2025', '01/16/25'"
         )
 
 

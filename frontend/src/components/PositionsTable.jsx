@@ -4,6 +4,97 @@ import { Trash2, Plus } from 'lucide-react';
 let nextId = 1;
 export const generateId = () => `pos_${nextId++}_${Date.now()}`;
 
+// Calculate next monthly options expiration (3rd Friday of next month)
+const getDefaultExpiration = () => {
+    const now = new Date();
+    // Start from next month
+    let month = now.getMonth() + 1;
+    let year = now.getFullYear();
+    if (month > 11) {
+        month = 0;
+        year++;
+    }
+
+    // Find 3rd Friday of that month
+    const firstDay = new Date(year, month, 1);
+    let fridayCount = 0;
+    let day = 1;
+    while (fridayCount < 3) {
+        const d = new Date(year, month, day);
+        if (d.getDay() === 5) fridayCount++;
+        if (fridayCount < 3) day++;
+    }
+
+    // Format as "Jan 17 26"
+    const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+    const shortYear = String(year).slice(-2);
+    return `${months[month]} ${day} ${shortYear}`;
+};
+
+export const DEFAULT_EXPIRATION = getDefaultExpiration();
+
+// Parse and format expiration date to standard "Jan 17 26" format
+const formatExpiration = (input) => {
+    if (!input || input.trim() === '') return DEFAULT_EXPIRATION;
+
+    const str = input.trim();
+    const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
+    let date = null;
+
+    // Try "Jan 17 26" format first
+    const match1 = str.match(/^([A-Za-z]{3})\s+(\d{1,2})\s+(\d{2})$/);
+    if (match1) {
+        const monthIdx = months.findIndex(m => m.toLowerCase() === match1[1].toLowerCase());
+        if (monthIdx !== -1) {
+            date = new Date(2000 + parseInt(match1[3]), monthIdx, parseInt(match1[2]));
+        }
+    }
+
+    // Try "Jan 17" format (assumes current or next year)
+    if (!date) {
+        const match2 = str.match(/^([A-Za-z]{3})\s+(\d{1,2})$/);
+        if (match2) {
+            const monthIdx = months.findIndex(m => m.toLowerCase() === match2[1].toLowerCase());
+            if (monthIdx !== -1) {
+                const now = new Date();
+                let year = now.getFullYear();
+                const testDate = new Date(year, monthIdx, parseInt(match2[2]));
+                // If more than 30 days in past, use next year
+                if ((now - testDate) / (1000 * 60 * 60 * 24) > 30) {
+                    year++;
+                }
+                date = new Date(year, monthIdx, parseInt(match2[2]));
+            }
+        }
+    }
+
+    // Try ISO format "2026-01-17"
+    if (!date) {
+        const match3 = str.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+        if (match3) {
+            date = new Date(parseInt(match3[1]), parseInt(match3[2]) - 1, parseInt(match3[3]));
+        }
+    }
+
+    // Try US format "1/17/26" or "01/17/26"
+    if (!date) {
+        const match4 = str.match(/^(\d{1,2})\/(\d{1,2})\/(\d{2,4})$/);
+        if (match4) {
+            let year = parseInt(match4[3]);
+            if (year < 100) year += 2000;
+            date = new Date(year, parseInt(match4[1]) - 1, parseInt(match4[2]));
+        }
+    }
+
+    // If still no valid date, return original input
+    if (!date || isNaN(date.getTime())) return str;
+
+    // Format as "Jan 17 26"
+    const shortYear = String(date.getFullYear()).slice(-2);
+    return `${months[date.getMonth()]} ${date.getDate()} ${shortYear}`;
+};
+
 const PositionsTable = ({ positions, setPositions, greeksData = null, showGreeks = false }) => {
     const ignoreMouseUp = useRef(false);
 
@@ -17,7 +108,7 @@ const PositionsTable = ({ positions, setPositions, greeksData = null, showGreeks
         const newPosition = {
             id: generateId(),
             qty: lastPosition?.qty ?? -1,
-            expiration: lastPosition?.expiration ?? '',
+            expiration: lastPosition?.expiration || DEFAULT_EXPIRATION,
             strike: 0,
             type: 'P',
             style: 'American'
@@ -43,7 +134,7 @@ const PositionsTable = ({ positions, setPositions, greeksData = null, showGreeks
     const formatGreek = (value, greek) => {
         if (value === null || value === undefined || isNaN(value)) return '-';
 
-        switch(greek) {
+        switch (greek) {
             case 'delta':
                 return value.toFixed(3); // Delta: 3 decimals (e.g., 0.523)
             case 'gamma':
@@ -130,7 +221,11 @@ const PositionsTable = ({ positions, setPositions, greeksData = null, showGreeks
                                             type="text"
                                             value={pos.expiration}
                                             onChange={(e) => handleChange(index, 'expiration', e.target.value)}
-                                            placeholder="Dec 20"
+                                            onBlur={(e) => {
+                                                const formatted = formatExpiration(e.target.value);
+                                                handleChange(index, 'expiration', formatted);
+                                            }}
+                                            placeholder={DEFAULT_EXPIRATION}
                                             className={`${showGreeks ? 'w-20 px-1.5 py-0.5 text-sm' : 'w-full px-2 py-1'} border rounded bg-background`}
                                         />
                                     </td>
