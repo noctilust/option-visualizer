@@ -15,7 +15,7 @@ cache_minutes = int(os.getenv('MARKET_DATA_CACHE_MINUTES', '10'))
 market_data_fetcher = MarketDataFetcher(cache_duration_minutes=cache_minutes)
 
 # CORS origins from environment variable, with sensible defaults for development
-default_origins = "http://localhost:5173,http://localhost:3000"
+default_origins = "http://localhost:5173,http://localhost:3000,http://127.0.0.1:5173,http://127.0.0.1:3000"
 origins = os.environ.get("CORS_ORIGINS", default_origins).split(",")
 
 app.add_middleware(

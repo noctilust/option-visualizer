@@ -344,6 +344,36 @@ function App() {
     }));
   }, [chartData, zoomRange]);
 
+  // Memoize YAxis domain calculation for better performance
+  const yAxisDomain = useMemo(() => {
+    if (!visibleChartData.length) return ['auto', 'auto'];
+
+    const plValues = visibleChartData.map(d => d.pl);
+    const maxPL = Math.max(...plValues);
+    const minPL = Math.min(...plValues);
+    const range = maxPL - minPL;
+
+    // Ensure we don't have a 0 range
+    if (range === 0) return [minPL - 10, maxPL + 10];
+
+    // Add 10% padding on each side
+    const padding = range * 0.1;
+    return [minPL - padding, maxPL + padding];
+  }, [visibleChartData]);
+
+  // Create a strike price map for O(1) tooltip lookups
+  const strikePositionMap = useMemo(() => {
+    const map = new Map();
+    positions.forEach(pos => {
+      const key = pos.strike;
+      if (!map.has(key)) {
+        map.set(key, []);
+      }
+      map.get(key).push(pos);
+    });
+    return map;
+  }, [positions]);
+
   const handleStartOver = () => {
     setCredit('');
     setIsDebit(false);
@@ -421,13 +451,17 @@ function App() {
     e.preventDefault(); // Prevent native drag/selection behavior
     isDraggingRef.current = true;
     dragStartXRef.current = e.clientX;
-    dragStartRangeRef.current = { ...zoomRange };
+    // Use functional update to get current zoom range
+    setZoomRange(currentRange => {
+      dragStartRangeRef.current = { ...currentRange };
+      return currentRange;
+    });
 
     // Change cursor to grabbing
     if (chartContainerRef.current) {
       chartContainerRef.current.style.cursor = 'grabbing';
     }
-  }, [zoomRange]);
+  }, []); // No dependencies needed with functional update
 
   const handleChartMouseMove = useCallback((e) => {
     if (!isDraggingRef.current) return;
@@ -448,29 +482,34 @@ function App() {
     // Calculate shift amount (negative because dragging left should show higher prices)
     const shift = Math.round(-deltaX / pixelsPerPoint);
 
-    // Calculate new range with bounds checking
-    const totalPoints = chartData.length;
-    let newStart = startIdx + shift;
-    let newEnd = endIdx + shift;
+    // Use functional update to avoid zoomRange dependency
+    setZoomRange(currentRange => {
+      // Calculate new range with bounds checking
+      const totalPoints = chartData.length;
+      let newStart = startIdx + shift;
+      let newEnd = endIdx + shift;
 
-    // Clamp to valid range
-    if (newStart < 0) {
-      newEnd = newEnd - newStart;
-      newStart = 0;
-    }
-    if (newEnd > totalPoints - 1) {
-      newStart = newStart - (newEnd - (totalPoints - 1));
-      newEnd = totalPoints - 1;
-    }
+      // Clamp to valid range
+      if (newStart < 0) {
+        newEnd = newEnd - newStart;
+        newStart = 0;
+      }
+      if (newEnd > totalPoints - 1) {
+        newStart = newStart - (newEnd - (totalPoints - 1));
+        newEnd = totalPoints - 1;
+      }
 
-    // Ensure we don't go out of bounds
-    newStart = Math.max(0, newStart);
-    newEnd = Math.min(totalPoints - 1, newEnd);
+      // Ensure we don't go out of bounds
+      newStart = Math.max(0, newStart);
+      newEnd = Math.min(totalPoints - 1, newEnd);
 
-    if (newStart !== zoomRange.startIndex || newEnd !== zoomRange.endIndex) {
-      setZoomRange({ startIndex: newStart, endIndex: newEnd });
-    }
-  }, [chartData.length, zoomRange]);
+      // Only update if changed
+      if (newStart !== currentRange.startIndex || newEnd !== currentRange.endIndex) {
+        return { startIndex: newStart, endIndex: newEnd };
+      }
+      return currentRange;
+    });
+  }, [chartData.length]); // Only chartData.length dependency
 
   const handleChartMouseUp = useCallback(() => {
     isDraggingRef.current = false;
@@ -728,21 +767,7 @@ function App() {
                       stroke="#666"
                       tick={false}
                       width={0}
-                      domain={(() => {
-                        if (!visibleChartData.length) return ['auto', 'auto'];
-
-                        const plValues = visibleChartData.map(d => d.pl);
-                        const maxPL = Math.max(...plValues);
-                        const minPL = Math.min(...plValues);
-                        const range = maxPL - minPL;
-
-                        // Ensure we don't have a 0 range
-                        if (range === 0) return [minPL - 10, maxPL + 10];
-
-                        // Add 10% padding on each side
-                        const padding = range * 0.1;
-                        return [minPL - padding, maxPL + padding];
-                      })()}
+                      domain={yAxisDomain}
                     />
                     <Tooltip
                       content={({ active, payload, label }) => {
@@ -751,10 +776,13 @@ function App() {
                           const plValue = payload[0].payload.pl;
                           // Check if P/L is exactly 0 (breakeven point)
                           const isBreakeven = plValue === 0;
-                          // Check if this price matches any position's strike
-                          const matchingPositions = positions.filter(
-                            pos => Math.abs(pos.strike - label) < 0.5
-                          );
+                          // Use O(1) map lookup to find matching positions
+                          const matchingPositions = [];
+                          for (const [strike, posList] of strikePositionMap.entries()) {
+                            if (Math.abs(strike - label) < 0.5) {
+                              matchingPositions.push(...posList);
+                            }
+                          }
                           return (
                             <div className="bg-[#262626] border border-[#404040] text-[#e5e5e5] rounded-lg p-3 shadow-lg">
                               <div className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1 text-sm">

@@ -5,6 +5,7 @@ import react from '@vitejs/plugin-react'
 export default defineConfig({
   plugins: [react()],
   server: {
+    host: true, // Bind to 0.0.0.0 to accept connections from both localhost and 127.0.0.1
     proxy: {
       '/upload': 'http://localhost:8000',
       '/calculate': 'http://localhost:8000',
