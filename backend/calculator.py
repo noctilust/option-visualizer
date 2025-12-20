@@ -10,7 +10,8 @@ from typing import List, Dict, Optional
 import logging
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
-from market_data import calculate_days_to_expiration
+from market_data import calculate_days_to_expiration, MarketDataFetcher
+from tastytrade_client import get_tastytrade_client
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -290,23 +291,90 @@ def calculate_option_greeks(
     risk_free_rate: float,
     implied_volatility: float,
     dividend_yield: float = 0.0,
-    option_style: str = "European"
+    option_style: str = "European",
+    symbol: str = None,
+    expiration_str: str = None
 ) -> Dict[str, float]:
     """
-    Calculate all Greeks for an option using Black-Scholes formulas (European) or finite differences (American)
+    Calculate all Greeks for an option.
+    
+    Primary: Fetch from Tastytrade API (market-calibrated, no calculation bugs)
+    Fallback: Local Black-Scholes (European) or finite differences (American)
 
     Args:
         option_type: 'C' for call, 'P' for put
         stock_price: Current stock price
         strike: Strike price
         days_to_expiration: Days until expiration
-        option_style: 'European' or 'American' (default: European)
         risk_free_rate: Risk-free rate (annual, as decimal)
         implied_volatility: Implied volatility (annual, as decimal)
         dividend_yield: Continuous dividend yield (annual, as decimal)
+        option_style: 'European' or 'American' (default: European)
+        symbol: Stock symbol (for API lookup)
+        expiration_str: Expiration date string (for API lookup)
 
     Returns:
         Dict with keys: delta, gamma, theta, vega, rho
+    """
+    # Try Tastytrade API first if symbol and expiration are provided
+    if symbol and expiration_str:
+        api_greeks = _get_greeks_from_api(symbol, strike, expiration_str, option_type)
+        if api_greeks:
+            return api_greeks
+        logger.info(f"API Greeks not available for {symbol} {strike} {option_type}, using local calculation")
+    
+    # Fallback to local calculation
+    return _calculate_local_greeks(
+        option_type, stock_price, strike, days_to_expiration,
+        risk_free_rate, implied_volatility, dividend_yield, option_style
+    )
+
+
+def _get_greeks_from_api(
+    symbol: str,
+    strike: float,
+    expiration_str: str,
+    option_type: str
+) -> Optional[Dict[str, float]]:
+    """
+    Fetch Greeks from Tastytrade API.
+    
+    Returns None if unavailable (API not configured, option not found, etc.)
+    """
+    try:
+        client = get_tastytrade_client()
+        if not client.is_enabled:
+            return None
+        
+        # Convert expiration string to ISO format (YYYY-MM-DD)
+        fetcher = MarketDataFetcher()
+        try:
+            exp_date = fetcher.parse_expiration_date(expiration_str)
+            expiration_iso = exp_date.strftime('%Y-%m-%d')
+        except ValueError:
+            logger.warning(f"Could not parse expiration date: {expiration_str}")
+            return None
+        
+        # Fetch from API
+        return client.get_option_greeks(symbol, strike, expiration_iso, option_type)
+        
+    except Exception as e:
+        logger.warning(f"Error fetching API Greeks: {e}")
+        return None
+
+
+def _calculate_local_greeks(
+    option_type: str,
+    stock_price: float,
+    strike: float,
+    days_to_expiration: int,
+    risk_free_rate: float,
+    implied_volatility: float,
+    dividend_yield: float = 0.0,
+    option_style: str = "European"
+) -> Dict[str, float]:
+    """
+    Calculate Greeks locally using Black-Scholes (European) or finite differences (American)
     """
     # Route to finite differences for American options
     if option_style == "American":
@@ -623,7 +691,7 @@ def calculate_pl(
             dividend_yield = pos.get('dividend_yield') or default_dividend_yield
             option_style = pos.get('style', 'American')
 
-            # Calculate Greeks at current stock price
+            # Calculate Greeks at current stock price (tries API first, then local)
             option_greeks = calculate_option_greeks(
                 pos['type'],
                 current_stock_price,
@@ -632,7 +700,9 @@ def calculate_pl(
                 risk_free_rate,
                 iv,
                 dividend_yield,
-                option_style
+                option_style,
+                symbol=market_data.get('symbol'),  # For API lookup
+                expiration_str=pos['expiration']   # For API lookup
             )
 
             # Calculate theoretical value at current stock price

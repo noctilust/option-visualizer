@@ -362,20 +362,25 @@ function App() {
   }, [chartData, zoomRange]);
 
   // Memoize YAxis domain calculation for better performance
+  // Uses balanced scaling to ensure zero line is visible even with asymmetric P/L
   const yAxisDomain = useMemo(() => {
     if (!visibleChartData.length) return ['auto', 'auto'];
 
     const plValues = visibleChartData.map(d => d.pl);
     const maxPL = Math.max(...plValues);
     const minPL = Math.min(...plValues);
-    const range = maxPL - minPL;
 
     // Ensure we don't have a 0 range
-    if (range === 0) return [minPL - 10, maxPL + 10];
+    if (maxPL === minPL) return [minPL - 100, maxPL + 100];
 
-    // Add 10% padding on each side
-    const padding = range * 0.1;
-    return [minPL - padding, maxPL + padding];
+    // Use symmetric scaling around zero for better visualization
+    // This ensures the zero line is prominently visible
+    const absMax = Math.max(Math.abs(maxPL), Math.abs(minPL));
+
+    // Add 15% padding
+    const padding = absMax * 0.15;
+
+    return [-(absMax + padding), absMax + padding];
   }, [visibleChartData]);
 
   // Create a strike price map for O(1) tooltip lookups

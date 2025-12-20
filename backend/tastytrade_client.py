@@ -40,6 +40,7 @@ class TastytradeClient:
         self.refresh_token = os.getenv('TASTYTRADE_REFRESH_TOKEN', '')
         self._access_token: Optional[str] = None
         self._token_expiry: Optional[datetime] = None
+        self._greeks_cache: Dict[str, Any] = {}  # Cache for option Greeks
         self._enabled = bool(self.client_secret and self.refresh_token)
         
         if not self._enabled:
@@ -159,6 +160,91 @@ class TastytradeClient:
             return None
         except Exception as e:
             logger.error(f"Error fetching Tastytrade metrics for {symbol}: {e}")
+            return None
+
+    def get_option_greeks(
+        self, 
+        symbol: str, 
+        strike: float, 
+        expiration_date: str,  # "2025-02-20" ISO format
+        option_type: str  # "C" or "P"
+    ) -> Optional[Dict[str, float]]:
+        """
+        Fetch Greeks for a specific option from Tastytrade option chain.
+        
+        Args:
+            symbol: Underlying stock symbol (e.g., 'PLTR')
+            strike: Option strike price
+            expiration_date: Expiration in ISO format (YYYY-MM-DD)
+            option_type: 'C' for call, 'P' for put
+        
+        Returns:
+            Dict with delta, gamma, theta, vega, rho or None if unavailable
+        """
+        if not self._ensure_token():
+            return None
+
+        # Check cache first (5-minute cache for Greeks)
+        cache_key = f"greeks_{symbol}_{strike}_{expiration_date}_{option_type}"
+        if cache_key in self._greeks_cache:
+            cached_time, cached_data = self._greeks_cache[cache_key]
+            if datetime.now() - cached_time < timedelta(minutes=5):
+                logger.info(f"Greeks cache hit: {cache_key}")
+                return cached_data
+
+        try:
+            # Fetch option chain for the symbol
+            response = httpx.get(
+                f"{TASTYTRADE_API_URL}/option-chains/{symbol}/nested",
+                headers={"Authorization": f"Bearer {self._access_token}"},
+                timeout=15.0
+            )
+            response.raise_for_status()
+            
+            data = response.json()
+            expirations = data.get("data", {}).get("items", [])
+            
+            # Find matching expiration
+            for exp in expirations:
+                exp_date = exp.get("expiration-date", "")
+                if exp_date != expiration_date:
+                    continue
+                
+                # Found expiration, now find strike
+                strikes = exp.get("strikes", [])
+                for strike_data in strikes:
+                    strike_price = self._safe_float(strike_data.get("strike-price"))
+                    if strike_price is None or abs(strike_price - strike) > 0.01:
+                        continue
+                    
+                    # Found strike, get call or put
+                    if option_type.upper() == 'C':
+                        option = strike_data.get("call")
+                    else:
+                        option = strike_data.get("put")
+                    
+                    if option:
+                        greeks = {
+                            'delta': self._safe_float(option.get("delta")) or 0.0,
+                            'gamma': self._safe_float(option.get("gamma")) or 0.0,
+                            'theta': self._safe_float(option.get("theta")) or 0.0,
+                            'vega': self._safe_float(option.get("vega")) or 0.0,
+                            'rho': self._safe_float(option.get("rho")) or 0.0,
+                        }
+                        
+                        # Cache the result
+                        self._greeks_cache[cache_key] = (datetime.now(), greeks)
+                        logger.info(f"Fetched Tastytrade Greeks for {symbol} {strike} {option_type} {expiration_date}: delta={greeks['delta']:.4f}")
+                        return greeks
+            
+            logger.warning(f"Option not found in chain: {symbol} {strike} {option_type} {expiration_date}")
+            return None
+
+        except httpx.HTTPStatusError as e:
+            logger.error(f"Error fetching option chain for {symbol}: {e.response.status_code}")
+            return None
+        except Exception as e:
+            logger.error(f"Error fetching option Greeks for {symbol}: {e}")
             return None
 
     def search_symbols(self, query: str) -> list:
