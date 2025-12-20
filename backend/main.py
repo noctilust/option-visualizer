@@ -11,7 +11,7 @@ from market_data import MarketDataFetcher
 app = FastAPI()
 
 # Initialize market data fetcher
-cache_minutes = int(os.getenv('MARKET_DATA_CACHE_MINUTES', '10'))
+cache_minutes = int(os.getenv('MARKET_DATA_CACHE_MINUTES', '30'))  # Cache for 30 minutes
 market_data_fetcher = MarketDataFetcher(cache_duration_minutes=cache_minutes)
 
 # CORS origins from environment variable, with sensible defaults for development

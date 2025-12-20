@@ -28,6 +28,9 @@ function App() {
   const dragStartXRef = useRef(0);
   const dragStartRangeRef = useRef({ startIndex: 0, endIndex: 0 });
 
+  // Calculation in-progress guard to prevent concurrent calls
+  const calculationInProgressRef = useRef(false);
+
   // Black-Scholes / Greeks state
   const [symbol, setSymbol] = useState('');
   const [marketData, setMarketData] = useState(null);
@@ -234,7 +237,18 @@ function App() {
   }, [symbol]);
 
   useEffect(() => {
+    // Skip setup entirely if no positions (prevents initial page load trigger)
+    if (positions.length === 0) {
+      return;
+    }
+
     const calculatePL = async () => {
+      // Prevent concurrent calculations
+      if (calculationInProgressRef.current) {
+        console.log('⏭️  Skipping - calculation already in progress');
+        return;
+      }
+
       console.log('🔄 Calculate triggered:', {
         positionsCount: positions.length,
         credit: credit,
@@ -243,16 +257,14 @@ function App() {
         creditValue: credit ? parseFloat(credit) : 'empty'
       });
 
-      // Only require positions to calculate - credit defaults to 0
-      if (positions.length === 0) {
-        console.log('❌ Skipping calculation - no positions');
-        setChartData([]);
-        setGreeksData(null);
-        setPortfolioGreeks(null);
-        setProbabilityMetrics(null);
+      // Skip calculation if positions are incomplete (prevents 422 errors)
+      if (!arePositionsValid(positions)) {
+        console.log('⏸️  Skipping calculation - incomplete positions');
+        setCalculating(false);
         return;
       }
 
+      calculationInProgressRef.current = true;
       setCalculating(true);
       try {
         let creditValue = parseFloat(credit) || 0;
@@ -307,15 +319,20 @@ function App() {
         // Don't show error here to avoid spamming while typing
       } finally {
         setCalculating(false);
+        calculationInProgressRef.current = false;
       }
     };
 
+    // Smart debounce: faster when positions are complete, slower during editing
+    const isComplete = arePositionsValid(positions);
+    const debounceTime = isComplete ? 200 : 500;
+
     const timeoutId = setTimeout(() => {
       calculatePL();
-    }, 300); // Debounce
+    }, debounceTime);
 
     return () => clearTimeout(timeoutId);
-  }, [positions, credit, isDebit, symbol, useTheoreticalPricing]);
+  }, [positions, credit, isDebit, symbol, useTheoreticalPricing]); // arePositionsValid is stable (empty deps)
 
   const breakevenPoints = useMemo(() => {
     if (!chartData.length) return [];
@@ -373,6 +390,16 @@ function App() {
     });
     return map;
   }, [positions]);
+
+  // Validate positions are complete before sending to backend
+  const arePositionsValid = useCallback((positions) => {
+    return positions.every(pos =>
+      pos.strike > 0 &&  // Valid strike
+      pos.expiration && pos.expiration.trim() !== '' &&  // Has expiration
+      pos.type && (pos.type === 'C' || pos.type === 'P') &&  // Valid type
+      pos.qty !== 0  // Non-zero quantity
+    );
+  }, []);
 
   const handleStartOver = () => {
     setCredit('');
@@ -739,7 +766,7 @@ function App() {
                 onMouseUp={handleChartMouseUp}
                 onMouseLeave={handleChartMouseLeave}
               >
-                <ResponsiveContainer width="100%" height="100%">
+                <ResponsiveContainer width="100%" height={420}>
                   <AreaChart data={visibleChartData} margin={{ top: 20, right: 0, left: 0, bottom: 10 }}>
                     <CartesianGrid stroke="#525252" vertical={false} />
                     {/* Vertical grid lines at even prices with lighter gray */}

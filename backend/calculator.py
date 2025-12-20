@@ -8,12 +8,34 @@ from scipy.stats import norm
 from datetime import date
 from typing import List, Dict, Optional
 import logging
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from market_data import calculate_days_to_expiration
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
+
+def get_optimal_binomial_steps(days_to_expiration: int) -> int:
+    """
+    Determine optimal number of binomial tree steps based on DTE
+    
+    Shorter-dated options need fewer steps for accuracy,
+    while longer-dated options benefit from more steps.
+    
+    Args:
+        days_to_expiration: Days to expiration
+        
+    Returns:
+        Number of steps (50, 75, or 100)
+    """
+    if days_to_expiration < 7:
+        return 50   # Short-dated: less precision needed
+    elif days_to_expiration < 30:
+        return 75   # Medium-dated: moderate precision
+    else:
+        return 100  # Long-dated: higher precision
 
 
 def calculate_d1_d2(stock_price: float, strike: float, time_to_expiration: float, risk_free_rate: float, volatility: float, dividend_yield: float = 0.0) -> tuple:
@@ -152,24 +174,45 @@ def calculate_american_greeks_finite_diff(
             'vega': 0.0,
             'rho': 0.0
         }
+    
+    # Validate inputs to prevent division by zero
+    if stock_price <= 0 or strike <= 0 or implied_volatility <= 0:
+        logger.warning(f"Invalid parameters for American Greeks: S={stock_price}, K={strike}, IV={implied_volatility}")
+        return {
+            'delta': 0.0,
+            'gamma': 0.0,
+            'theta': 0.0,
+            'vega': 0.0,
+            'rho': 0.0
+        }
 
     try:
         # Base price
+        steps = get_optimal_binomial_steps(days_to_expiration)
         base_price = calculate_american_option_binomial(
             option_type, stock_price, strike, days_to_expiration,
-            risk_free_rate, implied_volatility, dividend_yield
+            risk_free_rate, implied_volatility, dividend_yield, steps
         )
 
         # Delta: sensitivity to stock price (use 1% change)
         dS = stock_price * 0.01
-        price_up = calculate_american_option_binomial(
-            option_type, stock_price + dS, strike, days_to_expiration,
-            risk_free_rate, implied_volatility, dividend_yield
-        )
-        price_down = calculate_american_option_binomial(
-            option_type, stock_price - dS, strike, days_to_expiration,
-            risk_free_rate, implied_volatility, dividend_yield
-        )
+        
+        # Parallel calculation of price_up and price_down
+        with ThreadPoolExecutor(max_workers=2) as executor:
+            future_up = executor.submit(
+                calculate_american_option_binomial,
+                option_type, stock_price + dS, strike, days_to_expiration,
+                risk_free_rate, implied_volatility, dividend_yield, steps
+            )
+            future_down = executor.submit(
+                calculate_american_option_binomial,
+                option_type, stock_price - dS, strike, days_to_expiration,
+                risk_free_rate, implied_volatility, dividend_yield, steps
+            )
+            
+            price_up = future_up.result()
+            price_down = future_down.result()
+        
         delta = (price_up - price_down) / (2 * dS)
 
         # Gamma: rate of change of delta
@@ -179,34 +222,44 @@ def calculate_american_greeks_finite_diff(
         if days_to_expiration > 1:
             price_tomorrow = calculate_american_option_binomial(
                 option_type, stock_price, strike, days_to_expiration - 1,
-                risk_free_rate, implied_volatility, dividend_yield
+                risk_free_rate, implied_volatility, dividend_yield, steps
             )
             theta = price_tomorrow - base_price  # Already per day
         else:
             theta = -base_price  # Decays to zero at expiration
 
-        # Vega: sensitivity to volatility (per 1% IV change)
+        # Vega and Rho: parallel calculation
         dSigma = 0.01
-        price_vol_up = calculate_american_option_binomial(
-            option_type, stock_price, strike, days_to_expiration,
-            risk_free_rate, implied_volatility + dSigma, dividend_yield
-        )
-        price_vol_down = calculate_american_option_binomial(
-            option_type, stock_price, strike, days_to_expiration,
-            risk_free_rate, implied_volatility - dSigma, dividend_yield
-        )
-        vega = (price_vol_up - price_vol_down) / 2  # Already per 1%
-
-        # Rho: sensitivity to interest rate (per 1% change)
         dr = 0.01
-        price_rate_up = calculate_american_option_binomial(
-            option_type, stock_price, strike, days_to_expiration,
-            risk_free_rate + dr, implied_volatility, dividend_yield
-        )
-        price_rate_down = calculate_american_option_binomial(
-            option_type, stock_price, strike, days_to_expiration,
-            risk_free_rate - dr, implied_volatility, dividend_yield
-        )
+        
+        with ThreadPoolExecutor(max_workers=4) as executor:
+            future_vol_up = executor.submit(
+                calculate_american_option_binomial,
+                option_type, stock_price, strike, days_to_expiration,
+                risk_free_rate, implied_volatility + dSigma, dividend_yield, steps
+            )
+            future_vol_down = executor.submit(
+                calculate_american_option_binomial,
+                option_type, stock_price, strike, days_to_expiration,
+                risk_free_rate, implied_volatility - dSigma, dividend_yield, steps
+            )
+            future_rate_up = executor.submit(
+                calculate_american_option_binomial,
+                option_type, stock_price, strike, days_to_expiration,
+                risk_free_rate + dr, implied_volatility, dividend_yield, steps
+            )
+            future_rate_down = executor.submit(
+                calculate_american_option_binomial,
+                option_type, stock_price, strike, days_to_expiration,
+                risk_free_rate - dr, implied_volatility, dividend_yield, steps
+            )
+            
+            price_vol_up = future_vol_up.result()
+            price_vol_down = future_vol_down.result()
+            price_rate_up = future_rate_up.result()
+            price_rate_down = future_rate_down.result()
+        
+        vega = (price_vol_up - price_vol_down) / 2  # Already per 1%
         rho = (price_rate_up - price_rate_down) / 2  # Already per 1%
 
         return {
@@ -219,6 +272,7 @@ def calculate_american_greeks_finite_diff(
 
     except Exception as e:
         logger.warning(f"American Greeks calculation failed: {e}")
+        logger.warning(f"Parameters: type={option_type}, S={stock_price}, K={strike}, DTE={days_to_expiration}, r={risk_free_rate}, IV={implied_volatility}")
         return {
             'delta': 0.0,
             'gamma': 0.0,
@@ -394,6 +448,7 @@ def calculate_american_option_binomial(
         return calculate_intrinsic_value(option_type, stock_price, strike)
 
     if implied_volatility <= 0 or stock_price <= 0 or strike <= 0:
+        logger.warning(f"Invalid parameters for binomial tree: S={stock_price}, K={strike}, IV={implied_volatility}")
         return calculate_intrinsic_value(option_type, stock_price, strike)
 
     try:
