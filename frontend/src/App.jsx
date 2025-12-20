@@ -36,7 +36,7 @@ function App() {
   const [marketData, setMarketData] = useState(null);
   const [loadingMarketData, setLoadingMarketData] = useState(false);
   const [useTheoreticalPricing, setUseTheoreticalPricing] = useState(true);
-  const [showGreeks, setShowGreeks] = useState(true);
+  const [showGreeks, setShowGreeks] = useState(false);
   const [greeksData, setGreeksData] = useState(null);
   const [portfolioGreeks, setPortfolioGreeks] = useState(null);
   const [probabilityMetrics, setProbabilityMetrics] = useState(null);
@@ -275,6 +275,7 @@ function App() {
         const requestBody = {
           positions: positions,
           credit: creditValue,
+          skip_greeks_curve: !showGreeks,  // Skip Greeks curve when visualization is hidden for faster P/L calculation
         };
 
         // Add Black-Scholes parameters if symbol is provided
@@ -323,16 +324,16 @@ function App() {
       }
     };
 
-    // Smart debounce: faster when positions are complete, slower during editing
+    // Smart debounce: give users time to finish typing multi-digit numbers
     const isComplete = arePositionsValid(positions);
-    const debounceTime = isComplete ? 200 : 500;
+    const debounceTime = isComplete ? 500 : 800;
 
     const timeoutId = setTimeout(() => {
       calculatePL();
     }, debounceTime);
 
     return () => clearTimeout(timeoutId);
-  }, [positions, credit, isDebit, symbol, useTheoreticalPricing]); // arePositionsValid is stable (empty deps)
+  }, [positions, credit, isDebit, symbol, useTheoreticalPricing, showGreeks]); // arePositionsValid is stable (empty deps)
 
   const breakevenPoints = useMemo(() => {
     if (!chartData.length) return [];
@@ -738,20 +739,18 @@ function App() {
               <div className="flex justify-between items-center mb-4">
                 <h2 className="text-xl font-semibold">5. Analysis</h2>
                 <div className="flex items-center gap-4">
-                  {portfolioGreeks && (
-                    <label className="flex items-center gap-2 cursor-pointer">
-                      <input
-                        type="checkbox"
-                        checked={showGreeks}
-                        onChange={(e) => setShowGreeks(e.target.checked)}
-                        className="w-4 h-4 rounded border-gray-300 text-primary focus:ring-primary"
-                      />
-                      <span className="text-sm flex items-center gap-1">
-                        <TrendingUp size={14} />
-                        Show Greeks
-                      </span>
-                    </label>
-                  )}
+                  <label className="flex items-center gap-2 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={showGreeks}
+                      onChange={(e) => setShowGreeks(e.target.checked)}
+                      className="w-4 h-4 rounded border-gray-300 text-primary focus:ring-primary"
+                    />
+                    <span className="text-sm flex items-center gap-1">
+                      <TrendingUp size={14} />
+                      Show Greeks
+                    </span>
+                  </label>
                   <button
                     onClick={handleStartOver}
                     className="flex items-center justify-center gap-1.5 min-w-[140px] px-4 py-2 text-sm font-medium text-primary-foreground bg-primary rounded-lg hover:bg-primary/90 transition-all shadow-sm hover:shadow-md"

@@ -50,6 +50,7 @@ class CalculateRequest(BaseModel):
     symbol: Optional[str] = Field(None, description="Stock symbol for Black-Scholes pricing (optional for backward compatibility)")
     use_theoretical_pricing: bool = Field(True, description="Use Black-Scholes theoretical pricing (default: True)")
     current_date: Optional[str] = Field(None, description="Current date for DTE calculation (ISO format: YYYY-MM-DD, default: today)")
+    skip_greeks_curve: bool = Field(False, description="Skip Greeks curve calculation for faster P/L-only response")
 
 class ProbabilityMetrics(BaseModel):
     """Probability and risk metrics for the strategy"""

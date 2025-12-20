@@ -166,7 +166,8 @@ def calculate_pl(request: CalculateRequest):
             request.credit,
             market_data=market_data,
             current_date=current_date,
-            use_theoretical_pricing=request.use_theoretical_pricing
+            use_theoretical_pricing=request.use_theoretical_pricing,
+            skip_greeks_curve=request.skip_greeks_curve
         )
 
         # Return result (backward compatible: if no market data, returns simple format)

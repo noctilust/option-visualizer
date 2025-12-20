@@ -634,7 +634,8 @@ def calculate_pl(
     market_data: Optional[dict] = None,
     current_date: Optional[date] = None,
     use_theoretical_pricing: bool = True,
-    range_percent: float = 0.5
+    range_percent: float = 0.5,
+    skip_greeks_curve: bool = False
 ) -> dict:
     """
     Calculate P/L with Black-Scholes pricing and Greeks
@@ -646,6 +647,7 @@ def calculate_pl(
         current_date: Current date for DTE calculation (default: today)
         use_theoretical_pricing: Use Black-Scholes (True) or intrinsic value (False)
         range_percent: Percentage to extend range beyond min/max strikes (default: 0.5 = 50%)
+        skip_greeks_curve: Skip calculating Greeks at each price point (faster for main P/L chart)
 
     Returns:
         Dict with keys:
@@ -677,9 +679,10 @@ def calculate_pl(
     prices = np.arange(start, end + 1, 1)
 
     # Calculate Greeks for each position at current stock price
+    # Skip if skip_greeks_curve is True for faster P/L-only calculation
     positions_with_greeks = []
 
-    if can_calculate_bs:
+    if can_calculate_bs and not skip_greeks_curve:
         current_stock_price = market_data['current_price']
         risk_free_rate = market_data['risk_free_rate']
         default_iv = market_data['implied_volatility']
@@ -876,7 +879,8 @@ def calculate_pl(
         }
 
         # Add Greeks at this price point for visualization (only every Nth point for performance)
-        if can_calculate_bs and idx % greek_calculation_interval == 0:
+        # Skip entirely if skip_greeks_curve is True (for faster P/L-only calculation)
+        if can_calculate_bs and not skip_greeks_curve and idx % greek_calculation_interval == 0:
             try:
                 greeks_at_price = get_portfolio_greeks_at_price(price)
                 if greeks_at_price:
