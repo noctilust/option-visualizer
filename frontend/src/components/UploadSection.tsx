@@ -1,15 +1,17 @@
 import { useState, useCallback, useEffect, type DragEvent, type ChangeEvent } from 'react';
-import { Upload, File, X, PenLine } from 'lucide-react';
+import { Upload, File, X, PenLine, Loader2 } from 'lucide-react';
 
 interface UploadSectionProps {
   onFileSelect: (file: File | null) => void;
   onManualEntry: () => void;
   resetKey: number;
+  loading?: boolean;
+  onClearError?: () => void;
 }
 
 type Mode = null | 'upload' | 'manual';
 
-export default function UploadSection({ onFileSelect, onManualEntry, resetKey }: UploadSectionProps) {
+export default function UploadSection({ onFileSelect, onManualEntry, resetKey, loading = false, onClearError }: UploadSectionProps) {
   const [dragActive, setDragActive] = useState(false);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [mode, setMode] = useState<Mode>(null);
@@ -55,6 +57,7 @@ export default function UploadSection({ onFileSelect, onManualEntry, resetKey }:
     setSelectedFile(null);
     onFileSelect(null);
     setMode(null);
+    onClearError?.();
   };
 
   const handleManualClick = () => {
@@ -64,6 +67,7 @@ export default function UploadSection({ onFileSelect, onManualEntry, resetKey }:
 
   const handleUploadClick = () => {
     setMode('upload');
+    onClearError?.();
   };
 
   const handleBack = () => {
@@ -156,26 +160,34 @@ export default function UploadSection({ onFileSelect, onManualEntry, resetKey }:
               </button>
             </>
           ) : (
-            <div className="w-full p-2 border rounded-lg bg-card flex items-center justify-between shadow-sm">
+            <div className="w-full p-4 border rounded-lg bg-card flex items-center justify-between shadow-sm">
               <div className="flex items-center space-x-3">
-                <div className="p-1.5 bg-primary/10 rounded-full">
-                  <File className="w-5 h-5 text-primary" />
-                </div>
+                {loading ? (
+                  <div className="p-1.5 bg-primary/10 rounded-full">
+                    <Loader2 className="w-5 h-5 text-primary animate-spin" />
+                  </div>
+                ) : (
+                  <div className="p-1.5 bg-primary/10 rounded-full">
+                    <File className="w-5 h-5 text-primary" />
+                  </div>
+                )}
                 <div>
                   <p className="text-sm font-medium text-foreground truncate max-w-[200px]">
                     {selectedFile.name}
                   </p>
                   <p className="text-xs text-muted-foreground">
-                    {(selectedFile.size / 1024 / 1024).toFixed(2)} MB
+                    {loading ? 'Processing with AI...' : `${(selectedFile.size / 1024 / 1024).toFixed(2)} MB`}
                   </p>
                 </div>
               </div>
-              <button
-                onClick={removeFile}
-                className="p-1 hover:bg-destructive/10 rounded-full text-muted-foreground hover:text-destructive transition-colors"
-              >
-                <X className="w-4 h-4" />
-              </button>
+              {!loading && (
+                <button
+                  onClick={removeFile}
+                  className="p-1 hover:bg-destructive/10 rounded-full text-muted-foreground hover:text-destructive transition-colors"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              )}
             </div>
           )}
         </div>

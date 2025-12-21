@@ -1,5 +1,6 @@
 import { useEffect, lazy, Suspense } from 'react';
 import { Sun, Moon, RotateCcw, TrendingUp, Loader2 } from 'lucide-react';
+import { Toaster } from 'react-hot-toast';
 
 // Hooks
 import { useTheme } from './hooks/useTheme';
@@ -44,6 +45,7 @@ function App() {
     loadingStates,
     loading,
     error,
+    setError,
     useTheoreticalPricing,
     setUseTheoreticalPricing,
     showGreeks,
@@ -88,6 +90,26 @@ function App() {
 
   return (
     <div className="min-h-screen bg-background text-foreground font-sans selection:bg-primary selection:text-primary-foreground">
+      {/* Toast notifications */}
+      <Toaster
+        position="top-right"
+        toastOptions={{
+          duration: 4000,
+          style: {
+            background: isDark ? '#1f2937' : '#ffffff',
+            color: isDark ? '#f3f4f6' : '#1f2937',
+            border: isDark ? '1px solid #374151' : '1px solid #e5e7eb',
+          },
+          success: {
+            duration: 3000,
+            iconTheme: { primary: '#10b981', secondary: '#ffffff' },
+          },
+          error: {
+            duration: 5000,
+            iconTheme: { primary: '#ef4444', secondary: '#ffffff' },
+          },
+        }}
+      />
       <div className="max-w-5xl mx-auto px-4 py-12">
         {/* Theme Toggle Button */}
         <div className="absolute top-4 right-4 md:top-6 md:right-6">
@@ -200,7 +222,13 @@ function App() {
           {symbol && symbol.trim() !== '' && marketData && marketData.iv_rank !== null && marketData.iv_rank !== undefined ? (
             <div className="bg-card border border-border rounded-xl shadow-sm p-4 md:p-5 animate-in fade-in slide-in-from-bottom-4 duration-500">
               <h2 className="text-xl font-semibold mb-4">2. Add Positions</h2>
-              <UploadSection onFileSelect={handleFileSelect} onManualEntry={handleManualEntry} resetKey={uploadResetKey} />
+              <UploadSection
+                onFileSelect={handleFileSelect}
+                onManualEntry={handleManualEntry}
+                resetKey={uploadResetKey}
+                loading={loading}
+                onClearError={() => setError(null)}
+              />
               {loading && <p className="text-center text-muted-foreground animate-pulse">Processing image...</p>}
               {error && <p className="text-center text-destructive">{error}</p>}
             </div>

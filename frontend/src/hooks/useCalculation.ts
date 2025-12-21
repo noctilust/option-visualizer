@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
+import toast from 'react-hot-toast';
 import type {
   Position,
   ChartDataPoint,
@@ -130,20 +131,48 @@ export function useCalculation({
     const formData = new FormData();
     formData.append('file', selectedFile);
 
+    // Create abort controller with 30 second timeout
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 30000);
+
     try {
       const response = await fetch(`${API_BASE}/upload`, {
         method: 'POST',
         body: formData,
+        signal: controller.signal,
       });
 
-      if (!response.ok) throw new Error('Upload failed');
+      clearTimeout(timeoutId);
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(errorData.detail || 'Upload failed');
+      }
 
       const data = await response.json();
+
+      if (!data.positions || data.positions.length === 0) {
+        throw new Error('No positions found in image');
+      }
+
       setPositions(data.positions.map((pos: Omit<Position, 'id'>) => ({ ...pos, id: generateId() })));
+      toast.success(`Parsed ${data.positions.length} position(s) from image`);
     } catch (err) {
       console.error(err);
-      setError('Failed to upload and parse image. Please try again or enter manually.');
+
+      let message = 'Failed to parse image';
+      if (err instanceof Error) {
+        if (err.name === 'AbortError') {
+          message = 'Upload timed out. Please try a smaller image.';
+        } else {
+          message = err.message;
+        }
+      }
+
+      setError(message + '. Please try again or enter manually.');
+      toast.error(message);
     } finally {
+      clearTimeout(timeoutId);
       setLoading(false);
     }
   };
@@ -159,6 +188,7 @@ export function useCalculation({
     setChartData([]);
     setError(null);
     setUploadResetKey(prev => prev + 1);
+    toast('Strategy cleared', { icon: '🔄' });
   };
 
   // Main calculation effect
@@ -311,7 +341,16 @@ export function useCalculation({
           return;
         }
         console.error('❌ Calculation error:', err);
-        // Don't show error here to avoid spamming while typing
+
+        // Show user-friendly error toast (throttled to avoid spam)
+        const message = err instanceof Error ? err.message : 'Calculation failed';
+        if (message.includes('fetch') || message.includes('network')) {
+          toast.error('Network error. Check your connection.');
+        } else if (message.includes('timeout')) {
+          toast.error('Request timed out. Try again.');
+        } else {
+          toast.error(`Calculation failed: ${message}`);
+        }
       } finally {
         // Only update loading states if this request wasn't aborted
         if (!abortController.signal.aborted) {
