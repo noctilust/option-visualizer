@@ -1,4 +1,4 @@
-import { useEffect, lazy, Suspense } from 'react';
+import { useEffect, useRef, lazy, Suspense } from 'react';
 import { Sun, Moon, RotateCcw, TrendingUp, Loader2 } from 'lucide-react';
 import { Toaster } from 'react-hot-toast';
 
@@ -77,6 +77,24 @@ function App() {
     handleChartMouseLeave,
     xAxisTicks,
   } = useChartZoom({ chartData, positions });
+
+  // Ref for scrolling to analysis section
+  const analysisSectionRef = useRef<HTMLDivElement>(null);
+  const prevChartDataLengthRef = useRef(0);
+
+  // Scroll to analysis section when chart data is first rendered
+  useEffect(() => {
+    if (chartData.length > 0 && prevChartDataLengthRef.current === 0) {
+      // Small delay to ensure DOM is updated
+      setTimeout(() => {
+        analysisSectionRef.current?.scrollIntoView({
+          behavior: 'smooth',
+          block: 'center'
+        });
+      }, 100);
+    }
+    prevChartDataLengthRef.current = chartData.length;
+  }, [chartData.length]);
 
   // Expose mock data loader for testing (dev only)
   useEffect(() => {
@@ -304,7 +322,10 @@ function App() {
 
           {/* Analysis Section */}
           {chartData.length > 0 && (
-            <div className="bg-card border border-border rounded-xl shadow-sm p-4 md:p-5 text-foreground animate-in fade-in slide-in-from-bottom-4 duration-500">
+            <div
+              ref={analysisSectionRef}
+              className="bg-card border border-border rounded-xl shadow-sm p-4 md:p-5 text-foreground animate-in fade-in slide-in-from-bottom-4 duration-500"
+            >
               <div className="flex justify-between items-center mb-4">
                 <h2 className="text-xl font-semibold">5. Analysis</h2>
                 <div className="flex items-center gap-4">
