@@ -1,3 +1,4 @@
+import { TrendingUp, TrendingDown, Minus, ArrowUpRight, ArrowDownRight } from 'lucide-react';
 import type { PortfolioGreeks } from '../types';
 
 interface GreeksChartProps {
@@ -68,6 +69,49 @@ export default function GreeksChart({ portfolioGreeks }: GreeksChartProps) {
     return 'text-foreground';
   };
 
+  // Get trend icon based on greek and value
+  const getTrendIcon = (value: number, greek: string) => {
+    const absValue = Math.abs(value);
+    const size = 20;
+
+    if (greek === 'delta') {
+      if (value > 0.2) return <ArrowUpRight size={size} className="text-green-600 dark:text-green-400" />;
+      if (value < -0.2) return <ArrowDownRight size={size} className="text-red-600 dark:text-red-400" />;
+      return <Minus size={size} className="text-muted-foreground" />;
+    } else if (greek === 'theta') {
+      if (value > 0) return <TrendingUp size={size} className="text-green-600 dark:text-green-400" />;
+      if (value < 0) return <TrendingDown size={size} className="text-red-600 dark:text-red-400" />;
+      return <Minus size={size} className="text-muted-foreground" />;
+    } else if (greek === 'gamma' || greek === 'vega') {
+      if (absValue > 0.1) return <TrendingUp size={size} className="text-blue-600 dark:text-blue-400" />;
+      return <Minus size={size} className="text-muted-foreground" />;
+    }
+    return <Minus size={size} className="text-muted-foreground" />;
+  };
+
+  // Get magnitude label
+  const getMagnitudeLabel = (value: number, greek: string): string => {
+    const absValue = Math.abs(value);
+    if (greek === 'delta') {
+      if (absValue > 0.5) return 'Strong';
+      if (absValue > 0.2) return 'Moderate';
+      return 'Weak';
+    } else if (greek === 'gamma') {
+      if (absValue > 0.05) return 'High';
+      if (absValue > 0.01) return 'Moderate';
+      return 'Low';
+    } else if (greek === 'theta') {
+      if (absValue > 10) return 'High';
+      if (absValue > 3) return 'Moderate';
+      return 'Low';
+    } else if (greek === 'vega') {
+      if (absValue > 50) return 'High';
+      if (absValue > 10) return 'Moderate';
+      return 'Low';
+    }
+    return 'Low';
+  };
+
   return (
     <div className="w-full space-y-4">
       <h3 className="text-lg font-medium">Position Greeks</h3>
@@ -76,20 +120,43 @@ export default function GreeksChart({ portfolioGreeks }: GreeksChartProps) {
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
         {(Object.entries(greekInfo) as [keyof typeof greekInfo, GreekInfo][]).map(([key, info]) => {
           const value = portfolioGreeks[key];
+          const magnitude = getMagnitudeLabel(value, key);
 
           return (
             <div
               key={key}
-              className="bg-card border rounded-lg p-4 hover:shadow-md transition-shadow"
+              className="bg-card border rounded-lg p-4 hover:shadow-md transition-all hover:scale-[1.02] relative overflow-hidden"
             >
+              {/* Accent bar at top */}
+              <div className="absolute top-0 left-0 right-0 h-1" style={{ backgroundColor: info.color }} />
+
               <div className="flex items-start justify-between mb-2">
-                <h4 className="text-sm font-medium uppercase" style={{ color: info.color }}>
-                  {info.label}
-                </h4>
+                <div className="flex flex-col gap-1">
+                  <h4 className="text-sm font-medium uppercase" style={{ color: info.color }}>
+                    {info.label}
+                  </h4>
+                  <span className="text-xs px-2 py-0.5 rounded-full bg-muted/50 text-muted-foreground font-semibold inline-block w-fit">
+                    {magnitude}
+                  </span>
+                </div>
+                {getTrendIcon(value, key)}
               </div>
+
               <div className={`text-2xl font-bold mb-1 ${getValueColorClass(value, key)}`}>
                 {formatValue(value, key)}
               </div>
+
+              {/* Progress bar for visual magnitude */}
+              <div className="h-1.5 bg-muted/30 rounded-full overflow-hidden mb-2">
+                <div
+                  className="h-full transition-all duration-500 rounded-full"
+                  style={{
+                    backgroundColor: info.color,
+                    width: `${Math.min(Math.abs(value) * (key === 'delta' ? 100 : key === 'gamma' ? 2000 : key === 'theta' ? 10 : 2), 100)}%`
+                  }}
+                />
+              </div>
+
               <p className="text-xs text-muted-foreground">
                 {info.description}
               </p>

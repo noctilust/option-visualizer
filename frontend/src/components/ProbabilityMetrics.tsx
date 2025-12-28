@@ -17,6 +17,17 @@ export default function ProbabilityMetrics({ probabilityMetrics }: ProbabilityMe
     risk_reward_ratio
   } = probabilityMetrics;
 
+  // Calculate gauge angle for probability (0-100% = 0-180 degrees for semicircle)
+  const gaugeAngle = (probability_of_profit / 100) * 180;
+  const gaugeRotation = -90; // Start from left side
+
+  // Calculate risk/reward bar widths
+  const totalRisk = Math.abs(max_loss);
+  const totalReward = Math.abs(max_profit);
+  const maxBarValue = Math.max(totalRisk, totalReward);
+  const riskBarWidth = maxBarValue > 0 ? (totalRisk / maxBarValue) * 100 : 0;
+  const rewardBarWidth = maxBarValue > 0 ? (totalReward / maxBarValue) * 100 : 0;
+
   // Format currency values
   const formatCurrency = (value: number | null | undefined): string => {
     if (value === null || value === undefined || isNaN(value)) return 'N/A';
@@ -55,7 +66,7 @@ export default function ProbabilityMetrics({ probabilityMetrics }: ProbabilityMe
 
       {/* Main Metrics Cards */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-        {/* Probability of Profit */}
+        {/* Probability of Profit with Gauge */}
         <div className="bg-card border rounded-lg p-4 hover:shadow-md transition-shadow">
           <div className="flex items-start justify-between mb-2">
             <h4 className="text-sm font-medium text-muted-foreground uppercase">
@@ -63,10 +74,47 @@ export default function ProbabilityMetrics({ probabilityMetrics }: ProbabilityMe
             </h4>
             <Activity className="w-4 h-4 text-muted-foreground" />
           </div>
-          <div className={`text-3xl font-bold mb-1 ${getProbabilityColor(probability_of_profit)}`}>
+
+          {/* Semicircular Gauge */}
+          <div className="relative w-32 h-16 mx-auto mb-2">
+            <svg viewBox="0 0 100 50" className="w-full h-full">
+              {/* Background arc */}
+              <path
+                d="M 10 45 A 40 40 0 0 1 90 45"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="8"
+                className="text-muted/20"
+              />
+              {/* Progress arc */}
+              <path
+                d="M 10 45 A 40 40 0 0 1 90 45"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="8"
+                strokeDasharray={`${(gaugeAngle / 180) * 126} 126`}
+                className={getProbabilityColor(probability_of_profit)}
+                strokeLinecap="round"
+              />
+              {/* Needle */}
+              <line
+                x1="50"
+                y1="45"
+                x2="50"
+                y2="15"
+                stroke="currentColor"
+                strokeWidth="2"
+                className={getProbabilityColor(probability_of_profit)}
+                transform={`rotate(${gaugeRotation + gaugeAngle} 50 45)`}
+              />
+              <circle cx="50" cy="45" r="3" fill="currentColor" className={getProbabilityColor(probability_of_profit)} />
+            </svg>
+          </div>
+
+          <div className={`text-3xl font-bold text-center mb-1 ${getProbabilityColor(probability_of_profit)}`}>
             {formatPercent(probability_of_profit)}
           </div>
-          <p className="text-xs text-muted-foreground">
+          <p className="text-xs text-muted-foreground text-center">
             Chance of profit at expiration
           </p>
         </div>
@@ -103,7 +151,7 @@ export default function ProbabilityMetrics({ probabilityMetrics }: ProbabilityMe
           </p>
         </div>
 
-        {/* Risk/Reward Ratio */}
+        {/* Risk/Reward Ratio with Bar Chart */}
         <div className="bg-card border rounded-lg p-4 hover:shadow-md transition-shadow">
           <div className="flex items-start justify-between mb-2">
             <h4 className="text-sm font-medium text-muted-foreground uppercase">
@@ -111,10 +159,39 @@ export default function ProbabilityMetrics({ probabilityMetrics }: ProbabilityMe
             </h4>
             <Target className="w-4 h-4 text-muted-foreground" />
           </div>
-          <div className="text-3xl font-bold mb-1 text-foreground">
+
+          {/* Visual Bar Comparison */}
+          <div className="space-y-2 mb-3">
+            <div className="flex items-center gap-2">
+              <span className="text-xs text-green-600 dark:text-green-400 w-16">Reward</span>
+              <div className="flex-1 h-4 bg-muted/30 rounded-full overflow-hidden">
+                <div
+                  className="h-full bg-green-500 transition-all duration-500"
+                  style={{ width: `${rewardBarWidth}%` }}
+                />
+              </div>
+              <span className="text-xs font-mono text-green-600 dark:text-green-400 w-16 text-right">
+                ${Math.abs(max_profit).toFixed(0)}
+              </span>
+            </div>
+            <div className="flex items-center gap-2">
+              <span className="text-xs text-red-600 dark:text-red-400 w-16">Risk</span>
+              <div className="flex-1 h-4 bg-muted/30 rounded-full overflow-hidden">
+                <div
+                  className="h-full bg-red-500 transition-all duration-500"
+                  style={{ width: `${riskBarWidth}%` }}
+                />
+              </div>
+              <span className="text-xs font-mono text-red-600 dark:text-red-400 w-16 text-right">
+                ${Math.abs(max_loss).toFixed(0)}
+              </span>
+            </div>
+          </div>
+
+          <div className="text-2xl font-bold mb-1 text-foreground text-center">
             {formatRatio(risk_reward_ratio)}
           </div>
-          <p className="text-xs text-muted-foreground">
+          <p className="text-xs text-muted-foreground text-center">
             Reward per dollar risked
           </p>
         </div>

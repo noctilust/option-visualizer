@@ -249,16 +249,18 @@ class TastytradeClient:
 
     def search_symbols(self, query: str) -> list:
         """
-        Search for symbols using Tastytrade API.
-        
+        Search for symbols using Tastytrade API with Yahoo Finance fallback.
+
         Args:
             query: Search query (e.g., 'AAPL' or 'Apple')
-            
+
         Returns:
             List of matching symbols with metadata
         """
         if not self._ensure_token():
-            return []
+            # Fallback: If Tastytrade not configured, use Yahoo Finance to validate
+            logger.info(f"Tastytrade not configured, using Yahoo Finance fallback for: {query}")
+            return self._search_symbols_fallback(query)
 
         try:
             response = httpx.get(
@@ -267,15 +269,15 @@ class TastytradeClient:
                 timeout=10.0
             )
             response.raise_for_status()
-            
+
             data = response.json()
             items = data.get("data", {}).get("items", [])
-            
+
             results = []
             for item in items:
                 instrument_type = item.get("instrument-type", "")
                 is_etf = item.get("etf", False)
-                
+
                 # Only include Equity instruments
                 if instrument_type == "Equity":
                     results.append({
@@ -284,12 +286,58 @@ class TastytradeClient:
                         "exchange": item.get("listed-market", ""),
                         "type": "ETF" if is_etf else "EQUITY"
                     })
-            
+
             return results
 
         except Exception as e:
-            logger.error(f"Error searching symbols: {e}")
+            logger.error(f"Error searching symbols via Tastytrade: {e}, falling back to Yahoo Finance")
+            return self._search_symbols_fallback(query)
+
+    def _search_symbols_fallback(self, query: str) -> list:
+        """
+        Fallback symbol search using Yahoo Finance validation.
+
+        This is used when Tastytrade is unavailable or returns no results.
+        """
+        import yfinance as yf
+
+        if not query or len(query.strip()) < 1:
             return []
+
+        query_upper = query.strip().upper()
+
+        try:
+            # Try to fetch info for the exact symbol from Yahoo Finance
+            ticker = yf.Ticker(query_upper)
+            info = ticker.info
+
+            # Check if this is a valid ticker (has a quote type)
+            if info and info.get('quoteType'):
+                quote_type = info.get('quoteType', '')
+                long_name = info.get('longName', info.get('shortName', query_upper))
+
+                # Only return if it's a stock or ETF
+                if quote_type in ['EQUITY', 'ETF']:
+                    return [{
+                        "symbol": query_upper,
+                        "name": long_name,
+                        "exchange": info.get('exchange', 'Unknown'),
+                        "type": quote_type
+                    }]
+
+            logger.info(f"No valid ticker found for: {query_upper}")
+            return []
+
+        except Exception as e:
+            logger.warning(f"Yahoo Finance fallback search failed for {query}: {e}")
+            # If even Yahoo Finance fails, return the symbol anyway to let user proceed
+            # Market data fetch will validate it later
+            return [{
+                "symbol": query_upper,
+                "name": query_upper,
+                "exchange": "Unknown",
+                "type": "EQUITY"
+            }]
 
     def _safe_float(self, value: Any, divide_by: float = 1, multiply_by: float = 1) -> Optional[float]:
         """Safely convert value to float with optional scaling"""

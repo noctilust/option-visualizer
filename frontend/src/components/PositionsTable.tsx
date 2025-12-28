@@ -166,10 +166,28 @@ export default function PositionsTable({
   const cellPadding = showGreeks ? "px-2 py-3" : "px-4 py-3";
   const headerPadding = showGreeks ? "px-2 py-3" : "px-4 py-3";
 
+  // Calculate position summary
+  const longPositions = positions.filter(p => p.qty > 0).length;
+  const shortPositions = positions.filter(p => p.qty < 0).length;
+
   return (
     <div className="w-full">
       <div className="flex items-center justify-between mb-4">
-        <h3 className="text-lg font-medium">Positions</h3>
+        <div className="flex items-center gap-3">
+          <h3 className="text-lg font-medium">Positions</h3>
+          <div className="flex items-center gap-2">
+            {longPositions > 0 && (
+              <span className="px-2 py-0.5 text-xs font-semibold rounded-full bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400">
+                {longPositions} Long
+              </span>
+            )}
+            {shortPositions > 0 && (
+              <span className="px-2 py-0.5 text-xs font-semibold rounded-full bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-400">
+                {shortPositions} Short
+              </span>
+            )}
+          </div>
+        </div>
         <button
           onClick={handleAdd}
           className="flex items-center justify-center gap-1.5 min-w-[140px] px-4 py-2 text-sm font-medium text-primary-foreground bg-primary rounded-lg hover:bg-primary/90 transition-all shadow-sm hover:shadow-md"
@@ -202,31 +220,50 @@ export default function PositionsTable({
           <tbody className="divide-y divide-border bg-card">
             {positions.map((pos, index) => {
               const greeks = getGreeksForPosition(index);
+              const isLong = pos.qty > 0;
+              const isShort = pos.qty < 0;
+              const rowColorClass = isLong
+                ? 'hover:bg-green-50/50 dark:hover:bg-green-950/20 border-l-2 border-l-green-500'
+                : isShort
+                ? 'hover:bg-red-50/50 dark:hover:bg-red-950/20 border-l-2 border-l-red-500'
+                : 'hover:bg-muted/50';
 
               return (
-                <tr key={pos.id || index} className="hover:bg-muted/50 transition-colors">
+                <tr key={pos.id || index} className={`transition-colors ${rowColorClass}`}>
                   <td className={cellPadding}>
-                    <input
-                      type="text"
-                      inputMode="numeric"
-                      value={pos.qty}
-                      onChange={(e: ChangeEvent<HTMLInputElement>) => handleChange(index, 'qty', e.target.value)}
-                      onFocus={(e: FocusEvent<HTMLInputElement>) => {
-                        e.target.select();
-                        ignoreMouseUp.current = true;
-                      }}
-                      onMouseUp={(e: MouseEvent<HTMLInputElement>) => {
-                        if (ignoreMouseUp.current) {
-                          e.preventDefault();
-                          ignoreMouseUp.current = false;
-                        }
-                      }}
-                      onBlur={(e: FocusEvent<HTMLInputElement>) => {
-                        const parsed = parseInt(e.target.value) || 0;
-                        handleChange(index, 'qty', parsed);
-                      }}
-                      className={`${showGreeks ? 'w-16 px-1.5 py-0.5 text-sm' : 'w-full px-2 py-1'} border rounded bg-background`}
-                    />
+                    <div className="flex items-center gap-2">
+                      {isLong && (
+                        <span className="flex-shrink-0 w-5 h-5 rounded bg-green-100 dark:bg-green-900/30 flex items-center justify-center text-[10px] font-bold text-green-700 dark:text-green-400">
+                          L
+                        </span>
+                      )}
+                      {isShort && (
+                        <span className="flex-shrink-0 w-5 h-5 rounded bg-red-100 dark:bg-red-900/30 flex items-center justify-center text-[10px] font-bold text-red-700 dark:text-red-400">
+                          S
+                        </span>
+                      )}
+                      <input
+                        type="text"
+                        inputMode="numeric"
+                        value={pos.qty}
+                        onChange={(e: ChangeEvent<HTMLInputElement>) => handleChange(index, 'qty', e.target.value)}
+                        onFocus={(e: FocusEvent<HTMLInputElement>) => {
+                          e.target.select();
+                          ignoreMouseUp.current = true;
+                        }}
+                        onMouseUp={(e: MouseEvent<HTMLInputElement>) => {
+                          if (ignoreMouseUp.current) {
+                            e.preventDefault();
+                            ignoreMouseUp.current = false;
+                          }
+                        }}
+                        onBlur={(e: FocusEvent<HTMLInputElement>) => {
+                          const parsed = parseInt(e.target.value) || 0;
+                          handleChange(index, 'qty', parsed);
+                        }}
+                        className={`${showGreeks ? 'w-12 px-1.5 py-0.5 text-sm' : 'flex-1 px-2 py-1'} border rounded bg-background`}
+                      />
+                    </div>
                   </td>
                   <td className={cellPadding}>
                     <input
@@ -268,7 +305,9 @@ export default function PositionsTable({
                     <select
                       value={pos.type}
                       onChange={(e: ChangeEvent<HTMLSelectElement>) => handleChange(index, 'type', e.target.value as 'C' | 'P')}
-                      className={`w-full ${showGreeks ? 'px-1.5 py-0.5 text-sm' : 'px-2 py-1'} border rounded bg-background`}
+                      className={`w-full ${showGreeks ? 'px-1.5 py-0.5 text-sm' : 'px-2 py-1'} border rounded bg-background font-medium ${
+                        pos.type === 'C' ? 'text-blue-600 dark:text-blue-400' : 'text-orange-600 dark:text-orange-400'
+                      }`}
                     >
                       <option value="C">Call</option>
                       <option value="P">Put</option>
