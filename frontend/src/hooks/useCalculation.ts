@@ -104,8 +104,8 @@ export function useCalculation({
   const [portfolioGreeks, setPortfolioGreeks] = useState<PortfolioGreeks | null>(null);
   const [probabilityMetrics, setProbabilityMetrics] = useState<ProbabilityMetrics | null>(null);
 
-  // P/L at different dates state
-  const [evalDaysFromNow, setEvalDaysFromNow] = useState<number | null>(null);
+  // P/L at different dates state (default to today = 0)
+  const [evalDaysFromNow, setEvalDaysFromNow] = useState<number | null>(0);
   const [maxDaysToExpiration, setMaxDaysToExpiration] = useState<number | null>(null);
   const [precomputedDates, setPrecomputedDates] = useState<Record<number, number[]> | null>(null);
 
