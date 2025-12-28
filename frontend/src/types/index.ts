@@ -22,6 +22,7 @@ export interface ChartDataPoint {
   price: number;
   pl: number;
   theoretical_pl?: number;
+  pl_at_date?: number;  // P/L at a specific future date (not expiration)
   profit?: number;
   loss?: number;
   delta?: number;
@@ -70,6 +71,9 @@ export interface CalculateResponse {
   portfolio_greeks: PortfolioGreeks | null;
   market_data: MarketData | null;
   probability_metrics: ProbabilityMetrics | null;
+  eval_days_from_now: number | null;        // Days from now used for pl_at_date
+  max_days_to_expiration: number | null;    // Max DTE for slider range
+  precomputed_dates: Record<number, number[]> | null;  // Pre-computed P/L curves at different dates
 }
 
 export interface SymbolSearchResult {

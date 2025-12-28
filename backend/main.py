@@ -171,7 +171,9 @@ def calculate_pl(request: CalculateRequest):
             market_data=market_data,
             current_date=current_date,
             use_theoretical_pricing=request.use_theoretical_pricing,
-            skip_greeks_curve=request.skip_greeks_curve
+            skip_greeks_curve=request.skip_greeks_curve,
+            eval_days_from_now=request.eval_days_from_now,
+            precompute_dates=request.precompute_dates
         )
 
         # Return result (backward compatible: if no market data, returns simple format)

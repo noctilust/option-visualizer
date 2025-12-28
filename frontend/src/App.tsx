@@ -15,6 +15,7 @@ import PositionsTable from './components/PositionsTable';
 import SymbolAutocomplete from './components/SymbolAutocomplete';
 import PLChart from './components/PLChart';
 import ProbabilityMetrics from './components/ProbabilityMetrics';
+import DateSelector from './components/DateSelector';
 
 // Components - Lazy loaded (only when Greeks are shown)
 const GreeksChart = lazy(() => import('./components/GreeksChart'));
@@ -53,6 +54,10 @@ function App() {
     greeksData,
     portfolioGreeks,
     probabilityMetrics,
+    evalDaysFromNow,
+    setEvalDaysFromNow,
+    maxDaysToExpiration,
+    precomputedDates,
     uploadResetKey,
     handleFileSelect,
     handleManualEntry,
@@ -325,6 +330,17 @@ function App() {
                 </div>
               </div>
 
+              {/* Date Selector for P/L at different dates */}
+              {maxDaysToExpiration !== null && maxDaysToExpiration > 0 && (
+                <div className="mb-4">
+                  <DateSelector
+                    evalDaysFromNow={evalDaysFromNow}
+                    setEvalDaysFromNow={setEvalDaysFromNow}
+                    maxDaysToExpiration={maxDaysToExpiration}
+                  />
+                </div>
+              )}
+
               <PLChart
                 chartData={chartData}
                 positions={positions}
@@ -340,6 +356,8 @@ function App() {
                 onMouseMove={handleChartMouseMove}
                 onMouseUp={handleChartMouseUp}
                 onMouseLeave={handleChartMouseLeave}
+                evalDaysFromNow={evalDaysFromNow}
+                precomputedDates={precomputedDates}
               />
 
               {/* Probability Metrics Section */}

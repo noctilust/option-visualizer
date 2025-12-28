@@ -1,7 +1,8 @@
 import { useMemo, useState, type RefObject } from 'react';
 import {
-  AreaChart,
+  ComposedChart,
   Area,
+  Line,
   XAxis,
   YAxis,
   CartesianGrid,
@@ -29,6 +30,8 @@ interface PLChartProps {
   onMouseMove: (e: React.MouseEvent) => void;
   onMouseUp: () => void;
   onMouseLeave: () => void;
+  evalDaysFromNow?: number | null;
+  precomputedDates?: Record<number, number[]> | null;
 }
 
 export default function PLChart({
@@ -46,6 +49,8 @@ export default function PLChart({
   onMouseMove,
   onMouseUp,
   onMouseLeave,
+  evalDaysFromNow,
+  precomputedDates,
 }: PLChartProps) {
   const [hoveredPoint, setHoveredPoint] = useState<{ x: number; y: number } | null>(null);
 
@@ -65,17 +70,76 @@ export default function PLChart({
     return points;
   }, [chartData]);
 
+  // Client-side interpolation: get P/L values for the selected date from precomputed data
+  const interpolatedPLAtDate = useMemo(() => {
+    if (evalDaysFromNow === null || !precomputedDates || Object.keys(precomputedDates).length === 0) {
+      return null;
+    }
+
+    const days = Object.keys(precomputedDates).map(Number).sort((a, b) => a - b);
+
+    // Find the two closest precomputed dates for interpolation
+    let lowerDay = days[0];
+    let upperDay = days[days.length - 1];
+
+    for (let i = 0; i < days.length; i++) {
+      if (days[i] <= evalDaysFromNow) lowerDay = days[i];
+      if (days[i] >= evalDaysFromNow) {
+        upperDay = days[i];
+        break;
+      }
+    }
+
+    // If exact match, return directly
+    if (lowerDay === evalDaysFromNow && precomputedDates[lowerDay]) {
+      return precomputedDates[lowerDay];
+    }
+
+    // If at boundaries, use nearest
+    if (evalDaysFromNow <= lowerDay) return precomputedDates[lowerDay];
+    if (evalDaysFromNow >= upperDay) return precomputedDates[upperDay];
+
+    // Linear interpolation between two precomputed dates
+    const lowerPL = precomputedDates[lowerDay];
+    const upperPL = precomputedDates[upperDay];
+
+    if (!lowerPL || !upperPL || lowerPL.length !== upperPL.length) {
+      return precomputedDates[lowerDay] || precomputedDates[upperDay];
+    }
+
+    const ratio = (evalDaysFromNow - lowerDay) / (upperDay - lowerDay);
+    return lowerPL.map((pl, i) => pl + (upperPL[i] - pl) * ratio);
+  }, [evalDaysFromNow, precomputedDates]);
+
+  // Check if we have pl_at_date data (either from API or interpolated)
+  const hasPLAtDate = useMemo(() => {
+    return chartData.some(d => d.pl_at_date !== undefined) || interpolatedPLAtDate !== null;
+  }, [chartData, interpolatedPLAtDate]);
+
   // Compute visible chart data based on zoom range with profit/loss split
   const visibleChartData = useMemo(() => {
     if (!chartData.length) return [];
     const start = zoomRange.startIndex;
     const end = zoomRange.endIndex || chartData.length - 1;
-    return chartData.slice(start, end + 1).map(d => ({
-      ...d,
-      profit: d.pl > 0 ? d.pl : 0,
-      loss: d.pl < 0 ? d.pl : 0
-    }));
-  }, [chartData, zoomRange]);
+
+    return chartData.slice(start, end + 1).map((d, idx) => {
+      // Use interpolated P/L if available, otherwise use API-provided pl_at_date
+      const globalIdx = start + idx;
+      const plAtDate = interpolatedPLAtDate
+        ? interpolatedPLAtDate[globalIdx]
+        : d.pl_at_date;
+
+      return {
+        ...d,
+        profit: d.pl > 0 ? d.pl : 0,
+        loss: d.pl < 0 ? d.pl : 0,
+        // For the date line, use interpolated or API-provided pl_at_date
+        pl_at_date: plAtDate,
+        pl_at_date_profit: plAtDate !== undefined && plAtDate > 0 ? plAtDate : undefined,
+        pl_at_date_loss: plAtDate !== undefined && plAtDate < 0 ? plAtDate : undefined,
+      };
+    });
+  }, [chartData, zoomRange, interpolatedPLAtDate]);
 
   // Calculate profit and loss zones for visual overlays
   const profitLossZones = useMemo(() => {
@@ -130,9 +194,17 @@ export default function PLChart({
   const yAxisDomain = useMemo((): [number, number] => {
     if (!visibleChartData.length) return [-100, 100];
 
-    const plValues = visibleChartData.map(d => d.pl);
-    const maxPL = Math.max(...plValues);
-    const minPL = Math.min(...plValues);
+    // Include both pl and pl_at_date in domain calculation
+    const allValues: number[] = [];
+    visibleChartData.forEach(d => {
+      allValues.push(d.pl);
+      if (d.pl_at_date !== undefined) {
+        allValues.push(d.pl_at_date);
+      }
+    });
+
+    const maxPL = Math.max(...allValues);
+    const minPL = Math.min(...allValues);
 
     // Ensure we don't have a 0 range
     if (maxPL === minPL) return [minPL - 100, maxPL + 100];
@@ -169,7 +241,7 @@ export default function PLChart({
         onMouseLeave={onMouseLeave}
       >
         <ResponsiveContainer width="100%" height={420}>
-          <AreaChart
+          <ComposedChart
             data={visibleChartData}
             margin={{ top: 20, right: 0, left: 0, bottom: 10 }}
             onMouseMove={(e) => {
@@ -239,6 +311,7 @@ export default function PLChart({
               content={({ active, payload, label }) => {
                 if (active && payload && payload.length) {
                   const plValue = payload[0].payload.pl;
+                  const plAtDateValue = payload[0].payload.pl_at_date;
                   const isBreakeven = plValue === 0;
                   const matchingPositions: Position[] = [];
                   for (const [strike, posList] of strikePositionMap.entries()) {
@@ -246,6 +319,16 @@ export default function PLChart({
                       matchingPositions.push(...posList);
                     }
                   }
+
+                  // Format the date label
+                  const getDateLabel = () => {
+                    if (evalDaysFromNow === null || evalDaysFromNow === undefined) return null;
+                    if (evalDaysFromNow === 0) return 'Today';
+                    if (evalDaysFromNow === 1) return '1 day';
+                    return `${evalDaysFromNow} days`;
+                  };
+                  const dateLabel = getDateLabel();
+
                   return (
                     <div className="bg-[#262626] border border-[#404040] text-[#e5e5e5] rounded-lg p-3 shadow-lg">
                       <div className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1 text-sm">
@@ -253,10 +336,23 @@ export default function PLChart({
                         <span className="text-right font-medium">
                           ${Number.isInteger(label) ? label : (label as number).toFixed(2)}
                         </span>
-                        <span className="text-gray-400">P/L:</span>
+
+                        {/* Show P/L at selected date if available */}
+                        {plAtDateValue !== undefined && dateLabel && (
+                          <>
+                            <span className="text-blue-400">P/L ({dateLabel}):</span>
+                            <span className={`text-right font-medium ${plAtDateValue >= 0 ? 'text-blue-400' : 'text-orange-400'}`}>
+                              ${Math.round(plAtDateValue)}
+                            </span>
+                          </>
+                        )}
+
+                        {/* Always show P/L at expiration */}
+                        <span className="text-gray-400">{plAtDateValue !== undefined ? 'P/L (Exp):' : 'P/L:'}</span>
                         <span className={`text-right font-medium ${plValue >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
                           ${plValue}
                         </span>
+
                         {isBreakeven && (
                           <span className="col-span-2 text-center text-emerald-400 font-semibold mt-1 pt-1 border-t border-[#404040]">
                             Breakeven
@@ -474,7 +570,19 @@ export default function PLChart({
               baseValue={0}
               isAnimationActive={false}
             />
-          </AreaChart>
+            {/* P/L at selected date line (dashed blue line) */}
+            {hasPLAtDate && (
+              <Line
+                type="monotone"
+                dataKey="pl_at_date"
+                stroke="#3b82f6"
+                strokeWidth={2}
+                strokeDasharray="6 3"
+                dot={false}
+                isAnimationActive={false}
+              />
+            )}
+          </ComposedChart>
         </ResponsiveContainer>
       </div>
 

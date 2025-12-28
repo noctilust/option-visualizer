@@ -51,6 +51,8 @@ class CalculateRequest(BaseModel):
     use_theoretical_pricing: bool = Field(True, description="Use Black-Scholes theoretical pricing (default: True)")
     current_date: Optional[str] = Field(None, description="Current date for DTE calculation (ISO format: YYYY-MM-DD, default: today)")
     skip_greeks_curve: bool = Field(False, description="Skip Greeks curve calculation for faster P/L-only response")
+    eval_days_from_now: Optional[int] = Field(None, description="Days from now to evaluate P/L at (0 = today, None = show current theoretical only)")
+    precompute_dates: bool = Field(False, description="Pre-compute P/L curves for multiple dates (speeds up date slider)")
 
 class ProbabilityMetrics(BaseModel):
     """Probability and risk metrics for the strategy"""
@@ -62,8 +64,11 @@ class ProbabilityMetrics(BaseModel):
 
 class CalculateResponse(BaseModel):
     """Response from calculate endpoint with Greeks"""
-    data: List[Dict[str, float]] = Field(..., description="P/L data points: [{price, pl, theoretical_pl}, ...]")
+    data: List[Dict[str, float]] = Field(..., description="P/L data points: [{price, pl, theoretical_pl, pl_at_date?}, ...]")
     positions_with_greeks: Optional[List[PositionWithGreeks]] = Field(None, description="Greeks for each position")
     portfolio_greeks: Optional[Greeks] = Field(None, description="Portfolio-level Greeks")
     market_data: Optional[MarketData] = Field(None, description="Market data used for calculation")
     probability_metrics: Optional[Dict] = Field(None, description="Probability of profit and risk metrics")
+    eval_days_from_now: Optional[int] = Field(None, description="Days from now that was used for pl_at_date calculation")
+    max_days_to_expiration: Optional[int] = Field(None, description="Maximum days to expiration across all positions")
+    precomputed_dates: Optional[Dict[int, List[float]]] = Field(None, description="Pre-computed P/L values at different days: {days: [pl_values...]}")

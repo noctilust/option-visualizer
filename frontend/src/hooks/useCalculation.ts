@@ -39,6 +39,10 @@ interface UseCalculationReturn {
   greeksData: PositionWithGreeks[] | null;
   portfolioGreeks: PortfolioGreeks | null;
   probabilityMetrics: ProbabilityMetrics | null;
+  evalDaysFromNow: number | null;
+  setEvalDaysFromNow: (days: number | null) => void;
+  maxDaysToExpiration: number | null;
+  precomputedDates: Record<number, number[]> | null;
   uploadResetKey: number;
   handleFileSelect: (file: File | null) => Promise<void>;
   handleManualEntry: () => void;
@@ -99,6 +103,11 @@ export function useCalculation({
   const [greeksData, setGreeksData] = useState<PositionWithGreeks[] | null>(null);
   const [portfolioGreeks, setPortfolioGreeks] = useState<PortfolioGreeks | null>(null);
   const [probabilityMetrics, setProbabilityMetrics] = useState<ProbabilityMetrics | null>(null);
+
+  // P/L at different dates state
+  const [evalDaysFromNow, setEvalDaysFromNow] = useState<number | null>(null);
+  const [maxDaysToExpiration, setMaxDaysToExpiration] = useState<number | null>(null);
+  const [precomputedDates, setPrecomputedDates] = useState<Record<number, number[]> | null>(null);
 
   // Calculation in-progress guard to prevent concurrent calls
   const calculationInProgressRef = useRef(false);
@@ -242,6 +251,8 @@ export function useCalculation({
           skip_greeks_curve: boolean;
           symbol?: string;
           use_theoretical_pricing?: boolean;
+          eval_days_from_now?: number;
+          precompute_dates?: boolean;
         } = {
           positions: positions,
           credit: creditValue,
@@ -252,15 +263,24 @@ export function useCalculation({
         if (symbol && symbol.trim() !== '') {
           requestBody.symbol = symbol.toUpperCase();
           requestBody.use_theoretical_pricing = useTheoreticalPricing;
+          // Request pre-computed date curves for faster slider interaction
+          requestBody.precompute_dates = true;
+        }
+
+        // Add eval_days_from_now if set (for P/L at different dates)
+        if (evalDaysFromNow !== null) {
+          requestBody.eval_days_from_now = evalDaysFromNow;
         }
 
         // Generate cache key from request parameters
+        // Note: exclude eval_days_from_now since we use precomputed_dates client-side
         const cacheKey = JSON.stringify({
           positions: requestBody.positions,
           credit: requestBody.credit,
           skip_greeks_curve: requestBody.skip_greeks_curve,
           symbol: requestBody.symbol,
-          use_theoretical_pricing: requestBody.use_theoretical_pricing
+          use_theoretical_pricing: requestBody.use_theoretical_pricing,
+          precompute_dates: requestBody.precompute_dates
         });
 
         // Check if request is already in progress or cached
@@ -276,6 +296,12 @@ export function useCalculation({
           setProbabilityMetrics(data.probability_metrics || null);
           if (data.market_data) {
             setMarketData(data.market_data);
+          }
+          if (data.max_days_to_expiration !== undefined) {
+            setMaxDaysToExpiration(data.max_days_to_expiration);
+          }
+          if (data.precomputed_dates) {
+            setPrecomputedDates(data.precomputed_dates);
           }
 
           console.log('✅ Cache data applied');
@@ -330,6 +356,16 @@ export function useCalculation({
           setMarketData(data.market_data);
         }
 
+        // Set max days to expiration for the date slider
+        if (data.max_days_to_expiration !== undefined) {
+          setMaxDaysToExpiration(data.max_days_to_expiration);
+        }
+
+        // Store pre-computed date curves for client-side interpolation
+        if (data.precomputed_dates) {
+          setPrecomputedDates(data.precomputed_dates);
+        }
+
         console.log('✅ State updated - chartData length:', data.data?.length || 0);
 
         // Update loading states - chart is done, greeks might still be loading
@@ -378,6 +414,7 @@ export function useCalculation({
     }, debounceTime);
 
     return () => clearTimeout(timeoutId);
+    // Note: evalDaysFromNow is excluded - slider changes use precomputed_dates client-side
   }, [positions, credit, isDebit, symbol, useTheoreticalPricing, showGreeks, arePositionsValid]);
 
   return {
@@ -401,6 +438,10 @@ export function useCalculation({
     greeksData,
     portfolioGreeks,
     probabilityMetrics,
+    evalDaysFromNow,
+    setEvalDaysFromNow,
+    maxDaysToExpiration,
+    precomputedDates,
     uploadResetKey,
     handleFileSelect,
     handleManualEntry,
