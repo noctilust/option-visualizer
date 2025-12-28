@@ -351,17 +351,6 @@ function App() {
                 </div>
               </div>
 
-              {/* Date Selector for P/L at different dates */}
-              {maxDaysToExpiration !== null && maxDaysToExpiration > 0 && (
-                <div className="mb-4">
-                  <DateSelector
-                    evalDaysFromNow={evalDaysFromNow}
-                    setEvalDaysFromNow={setEvalDaysFromNow}
-                    maxDaysToExpiration={maxDaysToExpiration}
-                  />
-                </div>
-              )}
-
               <PLChart
                 chartData={chartData}
                 positions={positions}
@@ -380,6 +369,17 @@ function App() {
                 evalDaysFromNow={evalDaysFromNow}
                 precomputedDates={precomputedDates}
               />
+
+              {/* Date Selector for P/L at different dates */}
+              {maxDaysToExpiration !== null && maxDaysToExpiration > 0 && (
+                <div className="mt-6">
+                  <DateSelector
+                    evalDaysFromNow={evalDaysFromNow}
+                    setEvalDaysFromNow={setEvalDaysFromNow}
+                    maxDaysToExpiration={maxDaysToExpiration}
+                  />
+                </div>
+              )}
 
               {/* Probability Metrics Section */}
               {probabilityMetrics && (
