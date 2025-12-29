@@ -1,5 +1,5 @@
 import { useEffect, useRef, lazy, Suspense } from 'react';
-import { Sun, Moon, RotateCcw, TrendingUp, Loader2 } from 'lucide-react';
+import { Sun, Moon, RotateCcw, TrendingUp, Loader2, DollarSign, Activity, BarChart3, Percent } from 'lucide-react';
 import { Toaster } from 'react-hot-toast';
 
 // Hooks
@@ -181,33 +181,69 @@ function App() {
               )}
 
               {marketData && (
-                <div className="grid grid-cols-2 md:grid-cols-4 gap-3 bg-muted/30 rounded-lg p-3 border">
-                  <div>
-                    <div className="text-xs text-muted-foreground">Current Price</div>
-                    <div className="text-lg font-semibold">${marketData.current_price.toFixed(2)}</div>
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
+                  {/* Current Price */}
+                  <div className="group relative overflow-hidden rounded-lg bg-gradient-to-br from-emerald-500/10 to-emerald-500/5 border border-emerald-500/20 px-3 py-2 transition-all duration-300 hover:border-emerald-500/40">
+                    <div className="flex items-center gap-1.5 mb-0.5">
+                      <DollarSign className="w-3 h-3 text-emerald-500" />
+                      <span className="text-xs text-muted-foreground">Current Price</span>
+                    </div>
+                    <div className="text-base font-bold text-foreground">${marketData.current_price.toFixed(2)}</div>
                   </div>
-                  <div>
-                    <div className="text-xs text-muted-foreground">Implied Volatility</div>
-                    <div className="text-lg font-semibold">{(marketData.implied_volatility * 100).toFixed(1)}%</div>
+
+                  {/* Implied Volatility */}
+                  <div className="group relative overflow-hidden rounded-lg bg-gradient-to-br from-blue-500/10 to-blue-500/5 border border-blue-500/20 px-3 py-2 transition-all duration-300 hover:border-blue-500/40">
+                    <div className="flex items-center gap-1.5 mb-0.5">
+                      <Activity className="w-3 h-3 text-blue-500" />
+                      <span className="text-xs text-muted-foreground">Implied Volatility</span>
+                    </div>
+                    <div className="text-base font-bold text-foreground">{(marketData.implied_volatility * 100).toFixed(1)}%</div>
                   </div>
-                  <div>
-                    <div className="text-xs text-muted-foreground">IV Rank</div>
-                    <div className={`text-lg font-semibold ${marketData.iv_rank !== null && marketData.iv_rank !== undefined
+
+                  {/* IV Rank */}
+                  <div className={`group relative overflow-hidden rounded-lg px-3 py-2 transition-all duration-300 ${
+                    marketData.iv_rank !== null && marketData.iv_rank !== undefined
                       ? marketData.iv_rank < 30
-                        ? 'text-green-600 dark:text-green-400'
+                        ? 'bg-gradient-to-br from-green-500/10 to-green-500/5 border border-green-500/20 hover:border-green-500/40'
                         : marketData.iv_rank > 70
-                          ? 'text-red-600 dark:text-red-400'
-                          : 'text-yellow-600 dark:text-yellow-400'
-                      : ''
-                      }`}>
+                          ? 'bg-gradient-to-br from-red-500/10 to-red-500/5 border border-red-500/20 hover:border-red-500/40'
+                          : 'bg-gradient-to-br from-yellow-500/10 to-yellow-500/5 border border-yellow-500/20 hover:border-yellow-500/40'
+                      : 'bg-gradient-to-br from-muted/30 to-muted/10 border border-border'
+                  }`}>
+                    <div className="flex items-center gap-1.5 mb-0.5">
+                      <BarChart3 className={`w-3 h-3 ${
+                        marketData.iv_rank !== null && marketData.iv_rank !== undefined
+                          ? marketData.iv_rank < 30
+                            ? 'text-green-500'
+                            : marketData.iv_rank > 70
+                              ? 'text-red-500'
+                              : 'text-yellow-500'
+                          : 'text-muted-foreground'
+                      }`} />
+                      <span className="text-xs text-muted-foreground">IV Rank</span>
+                    </div>
+                    <div className={`text-base font-bold ${
+                      marketData.iv_rank !== null && marketData.iv_rank !== undefined
+                        ? marketData.iv_rank < 30
+                          ? 'text-green-600 dark:text-green-400'
+                          : marketData.iv_rank > 70
+                            ? 'text-red-600 dark:text-red-400'
+                            : 'text-yellow-600 dark:text-yellow-400'
+                        : 'text-foreground'
+                    }`}>
                       {marketData.iv_rank !== null && marketData.iv_rank !== undefined
                         ? `${marketData.iv_rank.toFixed(0)}%`
                         : 'N/A'}
                     </div>
                   </div>
-                  <div>
-                    <div className="text-xs text-muted-foreground">Risk-Free Rate</div>
-                    <div className="text-lg font-semibold">{(marketData.risk_free_rate * 100).toFixed(2)}%</div>
+
+                  {/* Risk-Free Rate */}
+                  <div className="group relative overflow-hidden rounded-lg bg-gradient-to-br from-purple-500/10 to-purple-500/5 border border-purple-500/20 px-3 py-2 transition-all duration-300 hover:border-purple-500/40">
+                    <div className="flex items-center gap-1.5 mb-0.5">
+                      <Percent className="w-3 h-3 text-purple-500" />
+                      <span className="text-xs text-muted-foreground">Risk-Free Rate</span>
+                    </div>
+                    <div className="text-base font-bold text-foreground">{(marketData.risk_free_rate * 100).toFixed(2)}%</div>
                   </div>
                 </div>
               )}
@@ -257,24 +293,24 @@ function App() {
             </div>
           ) : (
             !symbol || symbol.trim() === '' ? (
-              <div className="bg-muted/30 border border-dashed border-border rounded-xl shadow-sm p-6 md:p-8 text-center">
+              <div className="bg-muted/30 border border-dashed border-border rounded-xl shadow-sm p-4 md:p-5">
                 <h2 className="text-xl font-semibold mb-2 text-muted-foreground">2. Add Positions</h2>
-                <p className="text-muted-foreground">
+                <p className="text-sm text-muted-foreground">
                   Enter a stock symbol above to continue
                 </p>
               </div>
             ) : loadingMarketData ? (
-              <div className="bg-muted/30 border border-dashed border-border rounded-xl shadow-sm p-6 md:p-8 text-center">
+              <div className="bg-muted/30 border border-dashed border-border rounded-xl shadow-sm p-4 md:p-5">
                 <h2 className="text-xl font-semibold mb-2 text-muted-foreground">2. Add Positions</h2>
-                <div className="flex items-center justify-center gap-3">
+                <div className="flex items-center gap-3">
                   <Loader2 className="h-5 w-5 animate-spin text-primary" />
-                  <p className="text-muted-foreground">Loading market data...</p>
+                  <p className="text-sm text-muted-foreground">Loading market data...</p>
                 </div>
               </div>
             ) : (
-              <div className="bg-muted/30 border border-dashed border-border rounded-xl shadow-sm p-6 md:p-8 text-center">
+              <div className="bg-muted/30 border border-dashed border-border rounded-xl shadow-sm p-4 md:p-5">
                 <h2 className="text-xl font-semibold mb-2 text-muted-foreground">2. Add Positions</h2>
-                <p className="text-muted-foreground">
+                <p className="text-sm text-muted-foreground">
                   Unable to fetch market data for "{symbol}". Please try a different symbol.
                 </p>
               </div>

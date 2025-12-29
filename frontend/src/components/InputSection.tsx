@@ -15,10 +15,10 @@ export default function InputSection({ credit, setCredit, isDebit, setIsDebit }:
     <div className="bg-muted/30 rounded-lg px-4 py-3 border">
       {/* Single row: Label | Input | Credit/Debit toggle */}
       <div className="flex items-center gap-4">
-        {/* Label */}
-        <div className="flex items-center gap-2 shrink-0">
+        {/* Label - fixed width to prevent input field shifting */}
+        <div className="flex items-center gap-2 shrink-0 w-[145px]">
           <DollarSign size={14} className={isDebit ? 'text-red-500' : 'text-emerald-500'} />
-          <span className="text-sm font-medium">
+          <span className="text-sm font-medium whitespace-nowrap">
             {isDebit ? 'Debit Paid:' : 'Credit Received:'}
           </span>
         </div>

@@ -197,7 +197,7 @@ export default function SymbolAutocomplete({
           onKeyDown={handleKeyDown}
           onFocus={() => results.length > 0 && setIsOpen(true)}
           placeholder={placeholder}
-          className="w-full pl-10 pr-10 py-3 text-lg border rounded-lg bg-background focus:ring-2 focus:ring-primary focus:border-transparent transition-all uppercase"
+          className="w-full pl-10 pr-10 py-2 text-base border rounded-lg bg-background focus:ring-2 focus:ring-primary focus:border-transparent transition-all uppercase"
           autoComplete="off"
           spellCheck="false"
         />
