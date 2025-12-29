@@ -71,8 +71,15 @@ export default function PLChart({
   }, [chartData]);
 
   // Client-side interpolation: get P/L values for the selected date from precomputed data
+  // Returns null when evalDaysFromNow is null (Expiration mode) - we don't show the date line at expiration
   const interpolatedPLAtDate = useMemo(() => {
-    if (evalDaysFromNow === null || !precomputedDates || Object.keys(precomputedDates).length === 0) {
+    // When evalDaysFromNow is null, we're at expiration - don't show the date line
+    // (the solid line already shows P/L at expiration)
+    if (evalDaysFromNow === null || evalDaysFromNow === undefined) {
+      return null;
+    }
+
+    if (!precomputedDates || Object.keys(precomputedDates).length === 0) {
       return null;
     }
 
@@ -111,10 +118,15 @@ export default function PLChart({
     return lowerPL.map((pl, i) => pl + (upperPL[i] - pl) * ratio);
   }, [evalDaysFromNow, precomputedDates]);
 
-  // Check if we have pl_at_date data (either from API or interpolated)
+  // Check if we should show the pl_at_date line
+  // Only show when evalDaysFromNow is set (not null/expiration) and we have data
   const hasPLAtDate = useMemo(() => {
-    return chartData.some(d => d.pl_at_date !== undefined) || interpolatedPLAtDate !== null;
-  }, [chartData, interpolatedPLAtDate]);
+    // Don't show the date line when evalDaysFromNow is null (Expiration mode)
+    if (evalDaysFromNow === null || evalDaysFromNow === undefined) {
+      return false;
+    }
+    return interpolatedPLAtDate !== null || chartData.some(d => d.pl_at_date !== undefined);
+  }, [chartData, interpolatedPLAtDate, evalDaysFromNow]);
 
   // Compute visible chart data based on zoom range with profit/loss split
   const visibleChartData = useMemo(() => {
@@ -122,12 +134,18 @@ export default function PLChart({
     const start = zoomRange.startIndex;
     const end = zoomRange.endIndex || chartData.length - 1;
 
+    // Don't include pl_at_date when in expiration mode
+    const isExpirationMode = evalDaysFromNow === null || evalDaysFromNow === undefined;
+
     return chartData.slice(start, end + 1).map((d, idx) => {
       // Use interpolated P/L if available, otherwise use API-provided pl_at_date
+      // But only when NOT in expiration mode
       const globalIdx = start + idx;
-      const plAtDate = interpolatedPLAtDate
-        ? interpolatedPLAtDate[globalIdx]
-        : d.pl_at_date;
+      const plAtDate = isExpirationMode
+        ? undefined
+        : (interpolatedPLAtDate
+            ? interpolatedPLAtDate[globalIdx]
+            : d.pl_at_date);
 
       return {
         ...d,
@@ -139,7 +157,7 @@ export default function PLChart({
         pl_at_date_loss: plAtDate !== undefined && plAtDate < 0 ? plAtDate : undefined,
       };
     });
-  }, [chartData, zoomRange, interpolatedPLAtDate]);
+  }, [chartData, zoomRange, interpolatedPLAtDate, evalDaysFromNow]);
 
   // Calculate profit and loss zones for visual overlays
   const profitLossZones = useMemo(() => {
