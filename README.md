@@ -20,9 +20,14 @@ Open [http://localhost:5173](http://localhost:5173)
 ## Environment Variables
 
 **Backend** (`backend/.env`):
-- `GOOGLE_API_KEY` - Google AI API key for OCR
+- `GEMINI_API_KEY` - Google Gemini API key for OCR
 - `TASTYTRADE_CLIENT_SECRET` - Tastytrade OAuth client secret
 - `TASTYTRADE_REFRESH_TOKEN` - Tastytrade OAuth refresh token
+
+Optional:
+- `DEFAULT_RISK_FREE_RATE` - Override default risk-free rate (default: 0.045)
+- `DEFAULT_IMPLIED_VOLATILITY` - Override default IV (default: 0.25)
+- `MARKET_DATA_CACHE_MINUTES` - Cache duration in minutes (default: 30)
 
 ## Features
 

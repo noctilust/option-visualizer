@@ -154,7 +154,7 @@ function App() {
             Option Premium Visualizer
           </h1>
           <p className="text-muted-foreground text-lg">
-            Visualize your P/L from option strategies instantly.
+            Analyze your P/L from option strategies instantly.
           </p>
         </header>
 

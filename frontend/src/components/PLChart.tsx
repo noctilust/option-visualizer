@@ -10,7 +10,6 @@ import {
   ResponsiveContainer,
   ReferenceLine,
   ReferenceDot,
-  ReferenceArea,
 } from 'recharts';
 import { Plus, Minus, RotateCcw } from 'lucide-react';
 import type { ChartDataPoint, Position, MarketData, ZoomRange, BreakevenPoint } from '../types';
@@ -149,8 +148,8 @@ export default function PLChart({
 
       return {
         ...d,
-        profit: d.pl > 0 ? d.pl : 0,
-        loss: d.pl < 0 ? d.pl : 0,
+        profit: d.pl > 0 ? d.pl : undefined,
+        loss: d.pl < 0 ? d.pl : undefined,
         // For the date line, use interpolated or API-provided pl_at_date
         pl_at_date: plAtDate,
         pl_at_date_profit: plAtDate !== undefined && plAtDate > 0 ? plAtDate : undefined,
@@ -159,55 +158,7 @@ export default function PLChart({
     });
   }, [chartData, zoomRange, interpolatedPLAtDate, evalDaysFromNow]);
 
-  // Calculate profit and loss zones for visual overlays
-  const profitLossZones = useMemo(() => {
-    if (!visibleChartData.length || breakevenPoints.length === 0) return { profitZones: [], lossZones: [] };
-
-    const zones: { profitZones: Array<{ x1: number; x2: number }>; lossZones: Array<{ x1: number; x2: number }> } = {
-      profitZones: [],
-      lossZones: []
-    };
-
-    const minPrice = visibleChartData[0].price;
-    const maxPrice = visibleChartData[visibleChartData.length - 1].price;
-    const sortedBreakevens = [...breakevenPoints].sort((a, b) => a.x - b.x);
-
-    // Check first zone (before first breakeven)
-    if (sortedBreakevens.length > 0) {
-      const firstData = visibleChartData[0];
-      if (firstData.pl > 0) {
-        zones.profitZones.push({ x1: minPrice, x2: sortedBreakevens[0].x });
-      } else if (firstData.pl < 0) {
-        zones.lossZones.push({ x1: minPrice, x2: sortedBreakevens[0].x });
-      }
-    }
-
-    // Check zones between breakevens
-    for (let i = 0; i < sortedBreakevens.length - 1; i++) {
-      const midPrice = (sortedBreakevens[i].x + sortedBreakevens[i + 1].x) / 2;
-      const midPoint = visibleChartData.find(d => Math.abs(d.price - midPrice) < 0.5);
-      if (midPoint) {
-        if (midPoint.pl > 0) {
-          zones.profitZones.push({ x1: sortedBreakevens[i].x, x2: sortedBreakevens[i + 1].x });
-        } else if (midPoint.pl < 0) {
-          zones.lossZones.push({ x1: sortedBreakevens[i].x, x2: sortedBreakevens[i + 1].x });
-        }
-      }
-    }
-
-    // Check last zone (after last breakeven)
-    if (sortedBreakevens.length > 0) {
-      const lastData = visibleChartData[visibleChartData.length - 1];
-      if (lastData.pl > 0) {
-        zones.profitZones.push({ x1: sortedBreakevens[sortedBreakevens.length - 1].x, x2: maxPrice });
-      } else if (lastData.pl < 0) {
-        zones.lossZones.push({ x1: sortedBreakevens[sortedBreakevens.length - 1].x, x2: maxPrice });
-      }
-    }
-
-    return zones;
-  }, [visibleChartData, breakevenPoints]);
-
+  
   // Memoize YAxis domain calculation for better performance
   const yAxisDomain = useMemo((): [number, number] => {
     if (!visibleChartData.length) return [-100, 100];
@@ -272,32 +223,7 @@ export default function PLChart({
           >
             <CartesianGrid stroke="#525252" vertical={false} />
 
-            {/* Profit/Loss Zone Overlays */}
-            {profitLossZones.profitZones.map((zone, idx) => (
-              <ReferenceArea
-                key={`profit-zone-${idx}`}
-                x1={zone.x1}
-                x2={zone.x2}
-                y1={yAxisDomain[0]}
-                y2={yAxisDomain[1]}
-                fill="#10b981"
-                fillOpacity={0.05}
-                strokeOpacity={0}
-              />
-            ))}
-            {profitLossZones.lossZones.map((zone, idx) => (
-              <ReferenceArea
-                key={`loss-zone-${idx}`}
-                x1={zone.x1}
-                x2={zone.x2}
-                y1={yAxisDomain[0]}
-                y2={yAxisDomain[1]}
-                fill="#ef4444"
-                fillOpacity={0.05}
-                strokeOpacity={0}
-              />
-            ))}
-
+            
             {/* Vertical grid lines at even prices with lighter gray */}
             {xAxisTicks.map((tick, index) => (
               <ReferenceLine
@@ -397,7 +323,7 @@ export default function PLChart({
                 return null;
               }}
             />
-            <ReferenceLine y={0} stroke="#525252" strokeWidth={2} />
+            <ReferenceLine y={0} stroke="#ffffff" strokeWidth={1} />
             {/* Price labels just above the zero line */}
             {xAxisTicks.map((tick, index) => (
               <ReferenceDot

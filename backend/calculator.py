@@ -707,6 +707,14 @@ def calculate_pl(
 
     prices = np.array(prices_list)
 
+    # Get IV for each position (manual_iv override or default from market data)
+    # Note: Uses Tastytrade IV Index (ATM IV) for all positions unless manual_iv specified
+    # This may differ from actual per-strike IV due to volatility skew
+    default_iv = market_data['implied_volatility'] if market_data else 0.25
+    position_ivs: Dict[int, float] = {}
+    for idx, pos in enumerate(positions):
+        position_ivs[idx] = pos.get('manual_iv') or default_iv
+
     # Calculate Greeks for each position at current stock price
     # Skip if skip_greeks_curve is True for faster P/L-only calculation
     positions_with_greeks = []
@@ -714,12 +722,11 @@ def calculate_pl(
     if can_calculate_bs and not skip_greeks_curve:
         current_stock_price = market_data['current_price']
         risk_free_rate = market_data['risk_free_rate']
-        default_iv = market_data['implied_volatility']
         default_dividend_yield = market_data.get('dividend_yield', 0.0)
 
-        for pos in positions:
+        for idx, pos in enumerate(positions):
             dte = calculate_days_to_expiration(pos['expiration'], current_date)
-            iv = pos.get('manual_iv') or default_iv
+            iv = position_ivs.get(idx, default_iv)  # Use pre-computed per-strike IV
             dividend_yield = pos.get('dividend_yield') or default_dividend_yield
             option_style = pos.get('style', 'American')
 
@@ -763,7 +770,8 @@ def calculate_pl(
                 'position': pos,
                 'greeks': adjusted_greeks,
                 'theoretical_value': theoretical_value,
-                'intrinsic_value': intrinsic_value
+                'intrinsic_value': intrinsic_value,
+                'iv_used': iv  # Include IV used for transparency
             })
 
     # Calculate portfolio Greeks (sum of position Greeks)
@@ -797,16 +805,15 @@ def calculate_pl(
 
         total_pl = float(credit)
         risk_free_rate = market_data['risk_free_rate']
-        default_iv = market_data['implied_volatility']
         default_dividend_yield = market_data.get('dividend_yield', 0.0)
 
-        for pos in positions:
+        for idx, pos in enumerate(positions):
             qty = pos['qty']
             strike = pos['strike']
             option_type = pos['type']
 
             dte = calculate_days_to_expiration(pos['expiration'], current_date)
-            iv = pos.get('manual_iv') or default_iv
+            iv = position_ivs.get(idx, default_iv)  # Use pre-computed per-strike IV
             dividend_yield = pos.get('dividend_yield') or default_dividend_yield
             option_style = pos.get('style', 'American')
 
@@ -837,10 +844,9 @@ def calculate_pl(
 
         total_pl = float(credit)
         risk_free_rate = market_data['risk_free_rate']
-        default_iv = market_data['implied_volatility']
         default_dividend_yield = market_data.get('dividend_yield', 0.0)
 
-        for pos in positions:
+        for idx, pos in enumerate(positions):
             qty = pos['qty']
             strike = pos['strike']
             option_type = pos['type']
@@ -850,7 +856,7 @@ def calculate_pl(
             # Adjusted DTE (as if we're in the future)
             adjusted_dte = max(0, original_dte - days_from_now)
 
-            iv = pos.get('manual_iv') or default_iv
+            iv = position_ivs.get(idx, default_iv)  # Use pre-computed per-strike IV
             dividend_yield = pos.get('dividend_yield') or default_dividend_yield
             option_style = pos.get('style', 'American')
 
@@ -880,7 +886,6 @@ def calculate_pl(
             return None
 
         risk_free_rate = market_data['risk_free_rate']
-        default_iv = market_data['implied_volatility']
         default_dividend_yield = market_data.get('dividend_yield', 0.0)
 
         portfolio_greeks_at_price = {
@@ -891,9 +896,9 @@ def calculate_pl(
             'rho': 0.0
         }
 
-        for pos in positions:
+        for idx, pos in enumerate(positions):
             dte = calculate_days_to_expiration(pos['expiration'], current_date)
-            iv = pos.get('manual_iv') or default_iv
+            iv = position_ivs.get(idx, default_iv)  # Use pre-computed per-strike IV
             dividend_yield = pos.get('dividend_yield') or default_dividend_yield
             option_style = pos.get('style', 'American')
 

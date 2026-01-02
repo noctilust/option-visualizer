@@ -124,92 +124,51 @@ class MarketDataFetcher:
         option_type: str = 'C'
     ) -> float:
         """
-        Fetch implied volatility for an option
+        Fetch implied volatility for a symbol.
 
-        First attempts to get IV from options chain (strike-specific).
-        Falls back to historical volatility if options chain unavailable.
+        Uses Tastytrade IV Index (30-day ATM implied volatility).
+        Note: This is ATM IV and may differ from actual per-strike IV due to
+        volatility skew/smile. For more accurate pricing, use manual_iv override.
 
         Args:
             symbol: Stock ticker symbol
-            strike: Option strike price (optional)
-            expiration_date: Option expiration date (optional)
-            option_type: 'C' for call, 'P' for put
+            strike: Option strike price (optional, not currently used)
+            expiration_date: Option expiration date (optional, not currently used)
+            option_type: 'C' for call, 'P' for put (optional, not currently used)
 
         Returns:
             Implied volatility (annual, as decimal, e.g., 0.25 for 25%)
         """
-        cache_key = f"iv_{symbol}_{strike}_{expiration_date}_{option_type}"
+        cache_key = f"iv_{symbol}"
         cached_iv = self._get_from_cache(cache_key)
         if cached_iv is not None:
             return cached_iv
 
         try:
-            # Method 1: Try to get IV from options chain
-            if strike is not None and expiration_date is not None:
-                iv = self._get_iv_from_options_chain(symbol, strike, expiration_date, option_type)
-                if iv is not None:
-                    self._set_cache(cache_key, iv)
-                    return iv
+            # Use Tastytrade IV Index (30-day ATM IV)
+            if self._tastytrade.is_enabled:
+                metrics = self._tastytrade.get_market_metrics(symbol)
+                if metrics and metrics.get('implied_volatility') is not None:
+                    iv = metrics['implied_volatility']
+                    if iv > 0:
+                        logger.info(f"Using Tastytrade IV Index for {symbol}: {iv:.2%}")
+                        self._set_cache(cache_key, iv)
+                        return iv
 
-            # Method 2: Fall back to historical volatility
+            # Fall back to historical volatility
             hv = self.calculate_historical_volatility(symbol, days=20)
             if hv is not None:
                 logger.info(f"Using historical volatility for {symbol}: {hv:.2%}")
                 self._set_cache(cache_key, hv)
                 return hv
 
-            # Method 3: Use default IV
+            # Method 4: Use default IV
             logger.warning(f"Could not calculate IV for {symbol}, using default: {self.default_iv:.2%}")
             return self.default_iv
 
         except Exception as e:
             logger.error(f"Error fetching IV for {symbol}: {e}")
             return self.default_iv
-
-    def _get_iv_from_options_chain(
-        self,
-        symbol: str,
-        strike: float,
-        expiration_date: date,
-        option_type: str
-    ) -> Optional[float]:
-        """
-        Attempt to fetch IV from options chain
-
-        Returns:
-            IV if found, None otherwise
-        """
-        try:
-            ticker = yf.Ticker(symbol)
-
-            # Format expiration date
-            exp_str = expiration_date.strftime('%Y-%m-%d')
-
-            # Get options chain
-            options_chain = ticker.option_chain(exp_str)
-
-            # Select calls or puts
-            if option_type.upper() == 'C':
-                chain = options_chain.calls
-            else:
-                chain = options_chain.puts
-
-            # Find the closest strike
-            if not chain.empty:
-                chain['strike_diff'] = abs(chain['strike'] - strike)
-                closest = chain.loc[chain['strike_diff'].idxmin()]
-
-                # Get implied volatility
-                if 'impliedVolatility' in closest and not np.isnan(closest['impliedVolatility']):
-                    iv = float(closest['impliedVolatility'])
-                    logger.info(f"Found IV from options chain: {iv:.2%}")
-                    return iv
-
-            return None
-
-        except Exception as e:
-            logger.debug(f"Could not fetch IV from options chain: {e}")
-            return None
 
     def calculate_historical_volatility(self, symbol: str, days: int = 20) -> Optional[float]:
         """

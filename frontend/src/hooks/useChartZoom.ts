@@ -33,57 +33,64 @@ export function useChartZoom({ chartData, positions }: UseChartZoomProps): UseCh
   const positionsFingerprintRef = useRef<string>('');
   const hasInitializedRef = useRef(false);
 
-  // Reset zoom when chart data changes, with smart default based on profit zone
-  // Only reset when positions actually change, not on every recalculation
+  // Reset zoom when chart data changes, with smart default based on breakeven points
   useEffect(() => {
-    if (chartData.length === 0) return;
+    if (chartData.length === 0 || positions.length === 0) return;
 
-    // Generate a fingerprint of current positions (strikes and types)
-    const newFingerprint = positions.map(p => `${p.strike}-${p.type}-${p.qty}`).sort().join('|');
-    const positionsChanged = newFingerprint !== positionsFingerprintRef.current;
+    // Find breakeven points from chart data (where P/L crosses zero)
+    const breakevenPrices: number[] = [];
+    for (let i = 0; i < chartData.length - 1; i++) {
+      const p1 = chartData[i];
+      const p2 = chartData[i + 1];
+      if ((p1.pl >= 0 && p2.pl < 0) || (p1.pl < 0 && p2.pl >= 0)) {
+        const bePrice = p1.price + (p2.price - p1.price) * ((0 - p1.pl) / (p2.pl - p1.pl));
+        breakevenPrices.push(Math.round(bePrice * 100) / 100); // Round to 2 decimals
+      }
+    }
 
-    // Only reset zoom if:
-    // 1. This is the first time we're getting chart data (initial load)
-    // 2. The positions have fundamentally changed (different strikes/types)
-    if (!hasInitializedRef.current || positionsChanged) {
+    // Generate fingerprint including breakeven points (changes when credit changes)
+    const positionsKey = positions.map(p => `${p.strike}-${p.type}-${p.qty}`).sort().join('|');
+    const breakevenKey = breakevenPrices.sort((a, b) => a - b).join(',');
+    const newFingerprint = `${positionsKey}::${breakevenKey}`;
+
+    const shouldRecalculate = !hasInitializedRef.current || newFingerprint !== positionsFingerprintRef.current;
+
+    if (shouldRecalculate) {
       positionsFingerprintRef.current = newFingerprint;
       hasInitializedRef.current = true;
 
-      // Find profit zone indices
-      const firstProfitIndex = chartData.findIndex(d => d.pl > 0);
-      const lastProfitIndex = chartData.findLastIndex(d => d.pl > 0);
+      let lowerBound: number;
+      let upperBound: number;
 
-      if (firstProfitIndex !== -1 && lastProfitIndex !== -1) {
-        const profitWidth = lastProfitIndex - firstProfitIndex;
-        const padding = Math.floor(profitWidth * 0.5); // 50% padding on each side
-
-        const startIndex = Math.max(0, firstProfitIndex - padding);
-        const endIndex = Math.min(chartData.length - 1, lastProfitIndex + padding);
-
-        setZoomRange({ startIndex, endIndex });
-      } else if (positions.length > 0) {
-        // Fallback to strike-based zoom if no profit zone (e.g., all loss)
+      if (breakevenPrices.length >= 2) {
+        // Profit zone takes ~70% of chart (21.5% padding each side)
+        const minBE = Math.min(...breakevenPrices);
+        const maxBE = Math.max(...breakevenPrices);
+        const beSpread = maxBE - minBE;
+        const padding = beSpread * 0.215;
+        lowerBound = minBE - padding;
+        upperBound = maxBE + padding;
+      } else {
+        // Fallback to strike-based calculation
         const strikes = positions.map(p => p.strike);
         const minStrike = Math.min(...strikes);
         const maxStrike = Math.max(...strikes);
-
-        // Tighter buffer for fallback
-        const lowerBound = minStrike * 0.9;
-        const upperBound = maxStrike * 1.1;
-
-        const startIndex = chartData.findIndex(d => d.price >= lowerBound);
-        const endIndex = chartData.findIndex(d => d.price >= upperBound);
-
-        setZoomRange({
-          startIndex: startIndex !== -1 ? startIndex : 0,
-          endIndex: endIndex !== -1 ? endIndex : chartData.length - 1
-        });
-      } else {
-        setZoomRange({ startIndex: 0, endIndex: chartData.length - 1 });
+        const strikeSpread = maxStrike - minStrike;
+        const centerPrice = (minStrike + maxStrike) / 2;
+        const effectiveSpread = strikeSpread > 0 ? strikeSpread : minStrike * 0.15;
+        const viewRadius = effectiveSpread * 0.7;
+        lowerBound = centerPrice - viewRadius;
+        upperBound = centerPrice + viewRadius;
       }
+
+      const startIndex = chartData.findIndex(d => d.price >= lowerBound);
+      const endIndex = chartData.findIndex(d => d.price >= upperBound);
+
+      setZoomRange({
+        startIndex: startIndex !== -1 ? startIndex : 0,
+        endIndex: endIndex !== -1 ? endIndex : chartData.length - 1
+      });
     }
-    // Note: When only credit changes, we intentionally DON'T reset zoom
-    // The user's current zoom level is preserved
   }, [chartData, positions]);
 
   const xAxisTicks = useMemo(() => {
@@ -153,38 +160,51 @@ export function useChartZoom({ chartData, positions }: UseChartZoomProps): UseCh
   }, [chartData.length]);
 
   const handleResetZoom = useCallback(() => {
-    if (chartData.length > 0) {
-      // Find profit zone indices (same logic as initial load)
-      const firstProfitIndex = chartData.findIndex(d => d.pl > 0);
-      const lastProfitIndex = chartData.findLastIndex(d => d.pl > 0);
+    if (chartData.length > 0 && positions.length > 0) {
+      // Find breakeven points from chart data (where P/L crosses zero)
+      const breakevenPrices: number[] = [];
+      for (let i = 0; i < chartData.length - 1; i++) {
+        const p1 = chartData[i];
+        const p2 = chartData[i + 1];
+        if ((p1.pl >= 0 && p2.pl < 0) || (p1.pl < 0 && p2.pl >= 0)) {
+          const bePrice = p1.price + (p2.price - p1.price) * ((0 - p1.pl) / (p2.pl - p1.pl));
+          breakevenPrices.push(bePrice);
+        }
+      }
 
-      if (firstProfitIndex !== -1 && lastProfitIndex !== -1) {
-        const profitWidth = lastProfitIndex - firstProfitIndex;
-        const padding = Math.floor(profitWidth * 0.5);
+      let lowerBound: number;
+      let upperBound: number;
 
-        const startIndex = Math.max(0, firstProfitIndex - padding);
-        const endIndex = Math.min(chartData.length - 1, lastProfitIndex + padding);
-
-        setZoomRange({ startIndex, endIndex });
-      } else if (positions.length > 0) {
-        // Fallback to strike-based zoom if no profit zone
+      if (breakevenPrices.length >= 2) {
+        // Profit zone takes ~70% of chart (21.5% padding each side)
+        const minBE = Math.min(...breakevenPrices);
+        const maxBE = Math.max(...breakevenPrices);
+        const beSpread = maxBE - minBE;
+        const padding = beSpread * 0.215;
+        lowerBound = minBE - padding;
+        upperBound = maxBE + padding;
+      } else {
+        // Fallback to strike-based calculation
         const strikes = positions.map(p => p.strike);
         const minStrike = Math.min(...strikes);
         const maxStrike = Math.max(...strikes);
-
-        const lowerBound = minStrike * 0.9;
-        const upperBound = maxStrike * 1.1;
-
-        const startIdx = chartData.findIndex(d => d.price >= lowerBound);
-        const endIdx = chartData.findIndex(d => d.price >= upperBound);
-
-        setZoomRange({
-          startIndex: startIdx !== -1 ? startIdx : 0,
-          endIndex: endIdx !== -1 ? endIdx : chartData.length - 1
-        });
-      } else {
-        setZoomRange({ startIndex: 0, endIndex: chartData.length - 1 });
+        const strikeSpread = maxStrike - minStrike;
+        const centerPrice = (minStrike + maxStrike) / 2;
+        const effectiveSpread = strikeSpread > 0 ? strikeSpread : minStrike * 0.15;
+        const viewRadius = effectiveSpread * 0.7;
+        lowerBound = centerPrice - viewRadius;
+        upperBound = centerPrice + viewRadius;
       }
+
+      const startIdx = chartData.findIndex(d => d.price >= lowerBound);
+      const endIdx = chartData.findIndex(d => d.price >= upperBound);
+
+      setZoomRange({
+        startIndex: startIdx !== -1 ? startIdx : 0,
+        endIndex: endIdx !== -1 ? endIdx : chartData.length - 1
+      });
+    } else if (chartData.length > 0) {
+      setZoomRange({ startIndex: 0, endIndex: chartData.length - 1 });
     }
   }, [chartData, positions]);
 

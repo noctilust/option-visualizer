@@ -147,7 +147,7 @@ class TastytradeClient:
             result = {
                 'iv_rank': self._safe_float(metric.get("implied-volatility-index-rank"), multiply_by=100),
                 'iv_percentile': self._safe_float(metric.get("implied-volatility-percentile"), multiply_by=100),
-                'implied_volatility': self._safe_float(metric.get("implied-volatility-index"), divide_by=100),
+                'implied_volatility': self._safe_float(metric.get("implied-volatility-index")),
                 'beta': self._safe_float(metric.get("beta")),
                 'liquidity_rating': self._safe_int(metric.get("liquidity-rating")),
             }
