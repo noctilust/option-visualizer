@@ -23,8 +23,8 @@ export default function InputSection({ credit, setCredit, isDebit, setIsDebit }:
           </span>
         </div>
 
-        {/* Input field - grows to fill space */}
-        <div className="flex-1 min-w-[100px] max-w-[200px]">
+        {/* Input field - fixed width */}
+        <div className="shrink-0 w-[100px]">
           <div className="relative">
             <div className="absolute inset-y-0 left-0 pl-2.5 flex items-center pointer-events-none">
               <span className="text-muted-foreground text-sm">$</span>

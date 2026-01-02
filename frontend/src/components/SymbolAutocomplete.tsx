@@ -9,13 +9,15 @@ interface SymbolAutocompleteProps {
   onChange: (value: string) => void;
   onSelect?: (result: SymbolSearchResult | { symbol: string }) => void;
   placeholder?: string;
+  loading?: boolean;  // External loading state (e.g., fetching market data)
 }
 
 export default function SymbolAutocomplete({
   value,
   onChange,
   onSelect,
-  placeholder = "TSLA"
+  placeholder = "TSLA",
+  loading = false,
 }: SymbolAutocompleteProps) {
   const [inputValue, setInputValue] = useState(value || '');
   const [results, setResults] = useState<SymbolSearchResult[]>([]);
@@ -185,34 +187,43 @@ export default function SymbolAutocomplete({
   }, [highlightedIndex]);
 
   return (
-    <div className="relative w-full max-w-md">
-      <div className="relative">
-        <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-muted-foreground pointer-events-none" />
-        <input
-          ref={inputRef}
-          id="symbol"
-          type="text"
-          value={inputValue}
-          onChange={handleInputChange}
-          onKeyDown={handleKeyDown}
-          onFocus={() => results.length > 0 && setIsOpen(true)}
-          placeholder={placeholder}
-          className="w-full pl-10 pr-10 py-2 text-base border rounded-lg bg-background focus:ring-2 focus:ring-primary focus:border-transparent transition-all uppercase"
-          autoComplete="off"
-          spellCheck="false"
-        />
-        {isLoading && (
-          <Loader2 className="absolute right-3 top-1/2 -translate-y-1/2 w-5 h-5 text-muted-foreground animate-spin" />
-        )}
-        {!isLoading && inputValue && (
-          <button
-            onClick={handleClear}
-            className="absolute right-3 top-1/2 -translate-y-1/2 p-1 rounded-full hover:bg-muted transition-colors"
-            type="button"
-          >
-            <X className="w-4 h-4 text-muted-foreground" />
-          </button>
-        )}
+    <div className="relative w-full max-w-[360px]">
+      <div className="flex items-center gap-2">
+        <div className="relative flex-1">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-muted-foreground pointer-events-none" />
+          <input
+            ref={inputRef}
+            id="symbol"
+            type="text"
+            value={inputValue}
+            onChange={handleInputChange}
+            onKeyDown={handleKeyDown}
+            onFocus={() => results.length > 0 && setIsOpen(true)}
+            placeholder={placeholder}
+            className="w-full pl-10 pr-3 py-2 text-base border rounded-lg bg-background focus:ring-2 focus:ring-primary focus:border-transparent transition-all uppercase"
+            autoComplete="off"
+            spellCheck="false"
+          />
+          {inputValue && (
+            <button
+              onClick={handleClear}
+              className="absolute right-2 top-1/2 -translate-y-1/2 p-1 rounded-full hover:bg-muted transition-colors"
+              type="button"
+              aria-label="Clear input"
+            >
+              <X className="w-4 h-4 text-muted-foreground" />
+            </button>
+          )}
+        </div>
+        <div className="flex items-center gap-1 shrink-0 w-8 justify-end">
+          {(isLoading || loading) && (
+            <>
+              <span className="w-1.5 h-1.5 bg-primary rounded-full animate-pulse" style={{ animationDelay: '0ms' }} />
+              <span className="w-1.5 h-1.5 bg-primary rounded-full animate-pulse" style={{ animationDelay: '150ms' }} />
+              <span className="w-1.5 h-1.5 bg-primary rounded-full animate-pulse" style={{ animationDelay: '300ms' }} />
+            </>
+          )}
+        </div>
       </div>
 
       {/* Dropdown */}

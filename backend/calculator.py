@@ -22,13 +22,13 @@ logger = logging.getLogger(__name__)
 def get_optimal_binomial_steps(days_to_expiration: int) -> int:
     """
     Determine optimal number of binomial tree steps based on DTE
-    
+
     Shorter-dated options need fewer steps for accuracy,
     while longer-dated options benefit from more steps.
-    
+
     Args:
         days_to_expiration: Days to expiration
-        
+
     Returns:
         Number of steps (50, 75, or 100)
     """
@@ -707,13 +707,83 @@ def calculate_pl(
 
     prices = np.array(prices_list)
 
-    # Get IV for each position (manual_iv override or default from market data)
-    # Note: Uses Tastytrade IV Index (ATM IV) for all positions unless manual_iv specified
-    # This may differ from actual per-strike IV due to volatility skew
+    # Get IV for each position (per-strike from API, manual_iv override, or default IV)
+    # Priority: 1) Per-strike IV from Tastytrade API, 2) manual_iv override, 3) default ATM IV
     default_iv = market_data['implied_volatility'] if market_data else 0.25
     position_ivs: Dict[int, float] = {}
+    position_greeks_from_api: Dict[int, Dict[str, float]] = {}
+
+    # Build list of positions to fetch from API (exclude manual IV overrides)
+    positions_to_fetch = []
+    manual_iv_positions = set()
+
     for idx, pos in enumerate(positions):
-        position_ivs[idx] = pos.get('manual_iv') or default_iv
+        if pos.get('manual_iv'):
+            position_ivs[idx] = pos['manual_iv']
+            manual_iv_positions.add(idx)
+            logger.info(f"Position {idx}: Using manual IV={pos['manual_iv']:.2%}")
+        elif market_data and market_data.get('symbol'):
+            try:
+                # Parse expiration to ISO format for API
+                fetcher = MarketDataFetcher()
+                exp_date = fetcher.parse_expiration_date(pos.get('expiration', ''))
+                expiration_iso = exp_date.strftime('%Y-%m-%d')
+                positions_to_fetch.append({
+                    'index': idx,
+                    'symbol': market_data['symbol'],
+                    'strike': pos['strike'],
+                    'expiration_date': expiration_iso,
+                    'option_type': pos['type']
+                })
+            except ValueError:
+                logger.debug(f"Could not parse expiration for position {idx}")
+                position_ivs[idx] = default_iv
+
+    # Batch fetch all positions from API in one call
+    if positions_to_fetch:
+        try:
+            client = get_tastytrade_client()
+            if client.is_enabled:
+                # Prepare positions for batch API call
+                batch_positions = [
+                    {
+                        'symbol': p['symbol'],
+                        'strike': p['strike'],
+                        'expiration_date': p['expiration_date'],
+                        'option_type': p['option_type']
+                    }
+                    for p in positions_to_fetch
+                ]
+
+                batch_results = client.get_batch_option_greeks(batch_positions)
+
+                # Map results back to position indices
+                for p in positions_to_fetch:
+                    idx = p['index']
+                    position_key = f"{p['symbol']}_{p['strike']}_{p['expiration_date']}_{p['option_type']}"
+
+                    if position_key in batch_results:
+                        greeks_data = batch_results[position_key]
+                        if greeks_data.get('implied_volatility'):
+                            position_ivs[idx] = greeks_data['implied_volatility']
+                            position_greeks_from_api[idx] = greeks_data
+                            logger.info(f"Position {idx}: Using API IV={greeks_data['implied_volatility']:.2%} for {p['option_type']}{p['strike']}")
+                        else:
+                            position_ivs[idx] = default_iv
+                            logger.info(f"Position {idx}: No IV from API, using default ATM IV={default_iv:.2%}")
+                    else:
+                        position_ivs[idx] = default_iv
+                        logger.info(f"Position {idx}: API fetch failed, using default ATM IV={default_iv:.2%}")
+            else:
+                # Tastytrade not configured, use default IV
+                for p in positions_to_fetch:
+                    position_ivs[p['index']] = default_iv
+                    logger.info(f"Position {p['index']}: Using default ATM IV={default_iv:.2%}")
+        except Exception as e:
+            logger.warning(f"Batch API fetch failed: {e}")
+            for p in positions_to_fetch:
+                position_ivs[p['index']] = default_iv
+                logger.info(f"Position {p['index']}: Using default ATM IV={default_iv:.2%}")
 
     # Calculate Greeks for each position at current stock price
     # Skip if skip_greeks_curve is True for faster P/L-only calculation
@@ -730,19 +800,22 @@ def calculate_pl(
             dividend_yield = pos.get('dividend_yield') or default_dividend_yield
             option_style = pos.get('style', 'American')
 
-            # Calculate Greeks at current stock price (tries API first, then local)
-            option_greeks = calculate_option_greeks(
-                pos['type'],
-                current_stock_price,
-                pos['strike'],
-                dte,
-                risk_free_rate,
-                iv,
-                dividend_yield,
-                option_style,
-                symbol=market_data.get('symbol'),  # For API lookup
-                expiration_str=pos['expiration']   # For API lookup
-            )
+            # Use API-fetched Greeks if available, otherwise calculate locally
+            if idx in position_greeks_from_api:
+                option_greeks = position_greeks_from_api[idx]
+                logger.debug(f"Position {idx}: Using API Greeks")
+            else:
+                # Calculate Greeks locally (uses the same IV)
+                option_greeks = _calculate_local_greeks(
+                    pos['type'],
+                    current_stock_price,
+                    pos['strike'],
+                    dte,
+                    risk_free_rate,
+                    iv,
+                    dividend_yield,
+                    option_style
+                )
 
             # Calculate theoretical value at current stock price
             theoretical_value = calculate_black_scholes_price(
@@ -771,7 +844,8 @@ def calculate_pl(
                 'greeks': adjusted_greeks,
                 'theoretical_value': theoretical_value,
                 'intrinsic_value': intrinsic_value,
-                'iv_used': iv  # Include IV used for transparency
+                'iv_used': iv,  # Include IV used for transparency
+                'iv_source': 'api' if idx in position_greeks_from_api else ('manual' if pos.get('manual_iv') else 'atm')
             })
 
     # Calculate portfolio Greeks (sum of position Greeks)
@@ -957,7 +1031,7 @@ def calculate_pl(
         data_point = {
             "price": float(price),
             "pl": float(round(intrinsic_pl, 2)),  # At expiration
-            "theoretical_pl": float(round(theoretical_pl, 2))  # Current theoretical (today)
+            "theoretical_pl": float(round(theoretical_pl, 2))  # Current theoretical
         }
 
         # Add P/L at selected future date if specified

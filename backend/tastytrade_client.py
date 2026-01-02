@@ -163,23 +163,26 @@ class TastytradeClient:
             return None
 
     def get_option_greeks(
-        self, 
-        symbol: str, 
-        strike: float, 
+        self,
+        symbol: str,
+        strike: float,
         expiration_date: str,  # "2025-02-20" ISO format
         option_type: str  # "C" or "P"
     ) -> Optional[Dict[str, float]]:
         """
-        Fetch Greeks for a specific option from Tastytrade option chain.
-        
+        Get Greeks and IV for a specific option from Tastytrade API.
+
+        Uses the /market-data endpoint which returns quotes with Greeks
+        for options using OSI symbol format.
+
         Args:
-            symbol: Underlying stock symbol (e.g., 'PLTR')
+            symbol: Underlying stock symbol (e.g., 'TSLA')
             strike: Option strike price
             expiration_date: Expiration in ISO format (YYYY-MM-DD)
             option_type: 'C' for call, 'P' for put
-        
+
         Returns:
-            Dict with delta, gamma, theta, vega, rho or None if unavailable
+            Dict with delta, gamma, theta, vega, rho, implied_volatility or None if unavailable
         """
         if not self._ensure_token():
             return None
@@ -193,58 +196,241 @@ class TastytradeClient:
                 return cached_data
 
         try:
-            # Fetch option chain for the symbol
+            # Convert to OSI symbol format: "SYMBOL  YYMMDD(C/P)00000000"
+            osi_symbol = self._to_osi_symbol(symbol, expiration_date, strike, option_type)
+            if not osi_symbol:
+                logger.warning(f"Could not create OSI symbol for {symbol} {strike} {option_type} {expiration_date}")
+                return None
+
+            # Fetch option quote from /market-data endpoint
             response = httpx.get(
-                f"{TASTYTRADE_API_URL}/option-chains/{symbol}/nested",
+                f"{TASTYTRADE_API_URL}/market-data",
+                params={"symbols": osi_symbol},
                 headers={"Authorization": f"Bearer {self._access_token}"},
                 timeout=15.0
             )
             response.raise_for_status()
-            
+
             data = response.json()
-            expirations = data.get("data", {}).get("items", [])
-            
-            # Find matching expiration
-            for exp in expirations:
-                exp_date = exp.get("expiration-date", "")
-                if exp_date != expiration_date:
-                    continue
-                
-                # Found expiration, now find strike
-                strikes = exp.get("strikes", [])
-                for strike_data in strikes:
-                    strike_price = self._safe_float(strike_data.get("strike-price"))
-                    if strike_price is None or abs(strike_price - strike) > 0.01:
-                        continue
-                    
-                    # Found strike, get call or put
-                    if option_type.upper() == 'C':
-                        option = strike_data.get("call")
-                    else:
-                        option = strike_data.get("put")
-                    
-                    if option:
-                        greeks = {
-                            'delta': self._safe_float(option.get("delta")) or 0.0,
-                            'gamma': self._safe_float(option.get("gamma")) or 0.0,
-                            'theta': self._safe_float(option.get("theta")) or 0.0,
-                            'vega': self._safe_float(option.get("vega")) or 0.0,
-                            'rho': self._safe_float(option.get("rho")) or 0.0,
-                        }
-                        
-                        # Cache the result
-                        self._greeks_cache[cache_key] = (datetime.now(), greeks)
-                        logger.info(f"Fetched Tastytrade Greeks for {symbol} {strike} {option_type} {expiration_date}: delta={greeks['delta']:.4f}")
-                        return greeks
-            
-            logger.warning(f"Option not found in chain: {symbol} {strike} {option_type} {expiration_date}")
-            return None
+            items = data.get("data", {}).get("items", [])
+
+            if not items:
+                logger.warning(f"No quote data returned for {osi_symbol}")
+                return None
+
+            option_data = items[0]
+
+            # Extract Greeks and pricing from API response
+            # Note: Tastytrade returns "volatility" which is actually implied volatility
+            # as a decimal (e.g., 0.8435 for 84.35% IV)
+            greeks = {
+                'delta': self._safe_float(option_data.get("delta")),
+                'gamma': self._safe_float(option_data.get("gamma")),
+                'theta': self._safe_float(option_data.get("theta")),
+                'vega': self._safe_float(option_data.get("vega")),
+                'rho': self._safe_float(option_data.get("rho")),
+                'implied_volatility': self._safe_float(option_data.get("volatility")),
+                # Also include pricing data
+                'bid': self._safe_float(option_data.get("bid")),
+                'ask': self._safe_float(option_data.get("ask")),
+                'mark': self._safe_float(option_data.get("mark")),
+                'last': self._safe_float(option_data.get("last")),
+                'theo_price': self._safe_float(option_data.get("theo-price")),
+            }
+
+            # Validate we have at least some data
+            if greeks['implied_volatility'] is None and greeks['delta'] is None:
+                logger.warning(f"No Greeks data available for {osi_symbol}")
+                return None
+
+            # Cache the result
+            self._greeks_cache[cache_key] = (datetime.now(), greeks)
+            logger.info(f"Fetched Greeks for {osi_symbol}: "
+                       f"IV={greeks['implied_volatility']:.2%}, delta={greeks['delta']:.4f}")
+            return greeks
 
         except httpx.HTTPStatusError as e:
-            logger.error(f"Error fetching option chain for {symbol}: {e.response.status_code}")
+            logger.error(f"HTTP error fetching option Greeks for {symbol}: {e.response.status_code}")
             return None
         except Exception as e:
             logger.error(f"Error fetching option Greeks for {symbol}: {e}")
+            import traceback
+            logger.debug(traceback.format_exc())
+            return None
+
+    def get_batch_option_greeks(
+        self,
+        positions: list  # List of dicts with symbol, strike, expiration_date, option_type
+    ) -> Dict[str, Dict[str, float]]:
+        """
+        Fetch Greeks for multiple options in a single batch API call.
+
+        This is much more efficient than calling get_option_greeks multiple times.
+
+        Args:
+            positions: List of dicts with keys: symbol, strike, expiration_date, option_type
+
+        Returns:
+            Dict mapping position_key -> Greeks dict
+            position_key format: "{symbol}_{strike}_{expiration_date}_{option_type}"
+        """
+        if not self._ensure_token():
+            return {}
+
+        result = {}
+        osi_symbols = []
+        position_keys = []
+
+        # Build list of OSI symbols and check cache
+        for pos in positions:
+            symbol = pos.get('symbol', '')
+            strike = pos.get('strike', 0)
+            expiration_date = pos.get('expiration_date', '')
+            option_type = pos.get('option_type', 'C')
+
+            position_key = f"{symbol}_{strike}_{expiration_date}_{option_type}"
+
+            # Check cache first
+            cache_key = f"greeks_{symbol}_{strike}_{expiration_date}_{option_type}"
+            if cache_key in self._greeks_cache:
+                cached_time, cached_data = self._greeks_cache[cache_key]
+                if datetime.now() - cached_time < timedelta(minutes=5):
+                    result[position_key] = cached_data
+                    logger.info(f"Greeks cache hit: {position_key}")
+                    continue
+
+            # Create OSI symbol for API request
+            osi_symbol = self._to_osi_symbol(symbol, expiration_date, strike, option_type)
+            if osi_symbol:
+                osi_symbols.append(osi_symbol)
+                position_keys.append((position_key, symbol, strike, expiration_date, option_type))
+
+        if not osi_symbols:
+            return result  # All results were from cache
+
+        try:
+            # Batch fetch - API accepts multiple symbols separated by commas
+            # But the API has a limit, so we chunk if needed
+            chunk_size = 50  # API limit per request
+
+            for i in range(0, len(osi_symbols), chunk_size):
+                chunk = osi_symbols[i:i + chunk_size]
+                symbols_param = ','.join(chunk)
+
+                response = httpx.get(
+                    f"{TASTYTRADE_API_URL}/market-data",
+                    params={"symbols": symbols_param},
+                    headers={"Authorization": f"Bearer {self._access_token}"},
+                    timeout=30.0
+                )
+                response.raise_for_status()
+
+                data = response.json()
+                items = data.get("data", {}).get("items", [])
+
+                # Map OSI symbols to their data
+                items_map = {item.get("symbol", ""): item for item in items}
+
+                # Process each position in this chunk
+                for j in range(len(chunk)):
+                    if i + j >= len(position_keys):
+                        break
+
+                    position_key, symbol, strike, expiration_date, option_type = position_keys[i + j]
+                    osi_symbol = chunk[j]
+
+                    if osi_symbol not in items_map:
+                        logger.warning(f"No quote data returned for {osi_symbol}")
+                        continue
+
+                    option_data = items_map[osi_symbol]
+
+                    greeks = {
+                        'delta': self._safe_float(option_data.get("delta")),
+                        'gamma': self._safe_float(option_data.get("gamma")),
+                        'theta': self._safe_float(option_data.get("theta")),
+                        'vega': self._safe_float(option_data.get("vega")),
+                        'rho': self._safe_float(option_data.get("rho")),
+                        'implied_volatility': self._safe_float(option_data.get("volatility")),
+                        'bid': self._safe_float(option_data.get("bid")),
+                        'ask': self._safe_float(option_data.get("ask")),
+                        'mark': self._safe_float(option_data.get("mark")),
+                        'last': self._safe_float(option_data.get("last")),
+                        'theo_price': self._safe_float(option_data.get("theo-price")),
+                    }
+
+                    if greeks['implied_volatility'] is None and greeks['delta'] is None:
+                        logger.warning(f"No Greeks data available for {osi_symbol}")
+                        continue
+
+                    # Cache the result
+                    cache_key = f"greeks_{symbol}_{strike}_{expiration_date}_{option_type}"
+                    self._greeks_cache[cache_key] = (datetime.now(), greeks)
+
+                    result[position_key] = greeks
+                    logger.info(f"Fetched Greeks for {osi_symbol}: "
+                               f"IV={greeks['implied_volatility']:.2%}, delta={greeks['delta']:.4f}")
+
+            return result
+
+        except httpx.HTTPStatusError as e:
+            logger.error(f"HTTP error fetching batch option Greeks: {e.response.status_code}")
+            return result
+        except Exception as e:
+            logger.error(f"Error fetching batch option Greeks: {e}")
+            import traceback
+            logger.debug(traceback.format_exc())
+            return result
+
+    def _to_osi_symbol(
+        self,
+        symbol: str,
+        expiration_date: str,  # "2025-02-20"
+        strike: float,
+        option_type: str  # "C" or "P"
+    ) -> Optional[str]:
+        """
+        Convert option parameters to OSI symbol format.
+
+        OSI format: "SYMBOL  YYMMDD(C/P)00000000"
+        - Symbol: 6 chars (right-aligned, padded with spaces)
+        - YY: last 2 digits of year
+        - MM: month (01-12)
+        - DD: day (01-31)
+        - C/P: Call or Put
+        - 8 digits for strike (no decimal, padded with zeros)
+
+        Example: "TSLA  260102C00080000" = TSLA $80 Call expiring 2026-01-02
+
+        Args:
+            symbol: Stock symbol
+            expiration_date: ISO format date string (YYYY-MM-DD)
+            strike: Strike price
+            option_type: 'C' or 'P'
+
+        Returns:
+            OSI symbol string or None if parsing fails
+        """
+        try:
+            # Parse expiration date
+            from datetime import datetime
+            exp = datetime.strptime(expiration_date, "%Y-%m-%d")
+
+            # Format parts
+            symbol_part = symbol.upper().ljust(6)[:6]  # Left-align, pad with spaces, max 6 chars
+            year_part = exp.strftime("%y")  # Last 2 digits of year
+            month_day = exp.strftime("%m%d")  # MMDD
+            type_part = option_type.upper()
+
+            # Format strike as 8 digits (no decimal)
+            # Multiply by 1000 to handle fractional strikes, then format as int
+            strike_int = int(round(strike * 1000))
+            strike_part = f"{strike_int:08d}"
+
+            return f"{symbol_part}{year_part}{month_day}{type_part}{strike_part}"
+
+        except Exception as e:
+            logger.error(f"Error creating OSI symbol: {e}")
             return None
 
     def search_symbols(self, query: str) -> list:

@@ -170,15 +170,10 @@ function App() {
                 <SymbolAutocomplete
                   value={symbol}
                   onChange={setSymbol}
+                  loading={loadingMarketData}
                   placeholder="Search for a stock or ETF..."
                 />
               </div>
-
-              {loadingMarketData && (
-                <p className="text-sm text-muted-foreground animate-pulse">
-                  Fetching market data...
-                </p>
-              )}
 
               {marketData && (
                 <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
@@ -248,13 +243,15 @@ function App() {
                 </div>
               )}
 
-              {/* Data delay disclaimer */}
+              {/* Data disclaimer */}
               {marketData && (
                 <div className="flex items-center gap-2 text-xs text-muted-foreground mt-2">
                   <svg className="w-3.5 h-3.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
                   </svg>
-                  <span>IV Rank powered by Tastytrade - Price data may be delayed up to 15 minutes</span>
+                  <span>
+                    IV Rank and market data powered by Tastytrade API
+                  </span>
                 </div>
               )}
 

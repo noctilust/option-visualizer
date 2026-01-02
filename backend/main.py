@@ -1,8 +1,9 @@
 import os
+import json
 from fastapi import FastAPI, UploadFile, File, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
-from typing import List, Optional
+from typing import List
 from datetime import date, datetime
 import image_parser
 import calculator
@@ -181,6 +182,7 @@ def calculate_pl(request: CalculateRequest):
 
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
 
 # Serve static files (Production)
 # This assumes the frontend build is copied to 'static' directory
