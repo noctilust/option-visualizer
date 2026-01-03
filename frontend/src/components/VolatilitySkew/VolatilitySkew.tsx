@@ -1,11 +1,11 @@
 import { useEffect, useState } from 'react';
 import { TrendingUp, AlertCircle, Loader2 } from 'lucide-react';
-import SmileChart from './SmileChart';
+import SkewChart from './SkewChart';
 import ExpirationDropdown from '../ExpirationDropdown';
-import { useVolatilitySmile } from '../../hooks/useVolatilitySmile';
+import { useVolatilitySkew } from '../../hooks/useVolatilitySkew';
 import type { MarketData } from '../../types';
 
-interface VolatilitySmileProps {
+interface VolatilitySkewProps {
   symbol: string;
   marketData: MarketData | null;
   selectedExpiration: string;
@@ -13,13 +13,13 @@ interface VolatilitySmileProps {
   onExpirationChange?: (expiration: string) => void;
 }
 
-export default function VolatilitySmile({
+export default function VolatilitySkew({
   symbol,
   marketData,
   selectedExpiration: propExpiration,
   isDark,
   onExpirationChange,
-}: VolatilitySmileProps) {
+}: VolatilitySkewProps) {
   // Local state for expiration
   const [localExpiration, setLocalExpiration] = useState(propExpiration);
 
@@ -28,16 +28,16 @@ export default function VolatilitySmile({
     setLocalExpiration(propExpiration);
   }, [propExpiration]);
 
-  const { smileData, loading, error, fetchSmileData, clearSmileData } = useVolatilitySmile();
+  const { skewData, loading, error, fetchSkewData, clearSkewData } = useVolatilitySkew();
 
-  // Fetch smile data when symbol or expiration changes
+  // Fetch skew data when symbol or expiration changes
   useEffect(() => {
     if (symbol && localExpiration && marketData?.current_price) {
-      fetchSmileData(symbol, localExpiration);
+      fetchSkewData(symbol, localExpiration);
     } else {
-      clearSmileData();
+      clearSkewData();
     }
-  }, [symbol, localExpiration, marketData?.current_price, fetchSmileData, clearSmileData]);
+  }, [symbol, localExpiration, marketData?.current_price, fetchSkewData, clearSkewData]);
 
   const handleExpirationChange = (expiration: string) => {
     setLocalExpiration(expiration);
@@ -78,15 +78,15 @@ export default function VolatilitySmile({
       </div>
 
       {/* Skew Metric Badge */}
-      {smileData?.skew_metric !== null && smileData?.skew_metric !== undefined && (
+      {skewData?.skew_metric !== null && skewData?.skew_metric !== undefined && (
         <div className="mb-4 flex items-center justify-center">
           <div className="inline-flex items-center gap-2 bg-muted/80 px-4 py-2 rounded-full text-sm">
             <span className="text-muted-foreground">Skew Metric (25Δ):</span>
-            <span className={`font-semibold ${smileData.skew_metric > 0 ? 'text-red-500' : smileData.skew_metric < 0 ? 'text-green-500' : 'text-foreground'}`}>
-              {formatSkew(smileData.skew_metric)}
+            <span className={`font-semibold ${skewData.skew_metric > 0 ? 'text-red-500' : skewData.skew_metric < 0 ? 'text-green-500' : 'text-foreground'}`}>
+              {formatSkew(skewData.skew_metric)}
             </span>
             <span className="text-muted-foreground text-xs">
-              ({smileData.skew_metric > 0 ? 'Puts richer' : smileData.skew_metric < 0 ? 'Calls richer' : 'Balanced'})
+              ({skewData.skew_metric > 0 ? 'Puts richer' : skewData.skew_metric < 0 ? 'Calls richer' : 'Balanced'})
             </span>
           </div>
         </div>
@@ -113,9 +113,9 @@ export default function VolatilitySmile({
       )}
 
       {/* Chart */}
-      {!loading && !error && smileData && (
+      {!loading && !error && skewData && (
         <>
-          <SmileChart data={smileData} isDark={isDark} />
+          <SkewChart data={skewData} isDark={isDark} />
 
           {/* Legend */}
           <div className="flex items-center justify-center gap-6 mt-4 text-sm">
@@ -142,7 +142,7 @@ export default function VolatilitySmile({
                 }}
               />
               <span className="text-muted-foreground">
-                ATM ({formatIV(smileData.atm_iv)})
+                ATM ({formatIV(skewData.atm_iv)})
               </span>
             </div>
             <div className="flex items-center gap-2">
@@ -164,7 +164,7 @@ export default function VolatilitySmile({
       )}
 
       {/* Empty State */}
-      {!loading && !error && !smileData && (
+      {!loading && !error && !skewData && (
         <div className="h-[350px] flex items-center justify-center">
           <div className="flex flex-col items-center gap-3 text-muted-foreground">
             <TrendingUp className="w-12 h-12 opacity-50" />

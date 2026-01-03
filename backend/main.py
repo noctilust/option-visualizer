@@ -107,17 +107,17 @@ async def get_market_data(symbol: str):
             detail=f"Failed to fetch market data for {symbol}: {str(e)}"
         )
 
-@app.get("/volatility-smile/{symbol}")
-async def get_volatility_smile(symbol: str, expiration: str):
+@app.get("/volatility-skew/{symbol}")
+async def get_volatility_skew(symbol: str, expiration: str):
     """
-    Fetch volatility smile data for a specific symbol and expiration.
+    Fetch volatility skew data for a specific symbol and expiration.
 
     Args:
         symbol: Stock ticker symbol (e.g., 'AAPL')
         expiration: Expiration date in YYYY-MM-DD format
 
     Returns:
-        Volatility smile data including per-strike IV, ATM IV, and skew metric
+        Volatility skew data including per-strike IV, ATM IV, and skew metric
     """
     try:
         from tastytrade_client import get_tastytrade_client
@@ -135,7 +135,7 @@ async def get_volatility_smile(symbol: str, expiration: str):
         # Get current price for the symbol
         stock_price = market_data_fetcher.get_stock_price(symbol)
 
-        # Fetch volatility smile data from Tastytrade
+        # Fetch volatility skew data from Tastytrade
         tastytrade = get_tastytrade_client()
         if not tastytrade.is_enabled:
             raise HTTPException(
@@ -143,7 +143,7 @@ async def get_volatility_smile(symbol: str, expiration: str):
                 detail="Tastytrade API is not configured. Please set TASTYTRADE_CLIENT_SECRET and TASTYTRADE_REFRESH_TOKEN environment variables."
             )
 
-        smile_data = tastytrade.get_volatility_smile(
+        skew_data = tastytrade.get_volatility_smile(
             symbol.upper(),
             expiration,
             stock_price
@@ -154,9 +154,9 @@ async def get_volatility_smile(symbol: str, expiration: str):
                 "symbol": symbol.upper(),
                 "expiration": expiration,
                 "current_price": stock_price,
-                "atm_iv": smile_data["atm_iv"],
-                "skew_metric": smile_data["skew_metric"],
-                "points": smile_data["points"]
+                "atm_iv": skew_data["atm_iv"],
+                "skew_metric": skew_data["skew_metric"],
+                "points": skew_data["points"]
             }
         }
 
@@ -165,7 +165,7 @@ async def get_volatility_smile(symbol: str, expiration: str):
     except Exception as e:
         raise HTTPException(
             status_code=500,
-            detail=f"Failed to fetch volatility smile for {symbol}: {str(e)}"
+            detail=f"Failed to fetch volatility skew for {symbol}: {str(e)}"
         )
 
 @app.get("/option-chain/{symbol}")

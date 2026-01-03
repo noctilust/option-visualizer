@@ -46,14 +46,6 @@ export interface PositionWithGreeks {
   intrinsic_value: number;
 }
 
-export interface ProbabilityMetrics {
-  probability_of_profit: number;
-  max_profit: number;
-  max_loss: number;
-  breakeven_points: number[];
-  risk_reward_ratio: number | null;
-}
-
 export interface ZoomRange {
   startIndex: number;
   endIndex: number;
@@ -70,7 +62,6 @@ export interface CalculateResponse {
   positions_with_greeks: PositionWithGreeks[] | null;
   portfolio_greeks: PortfolioGreeks | null;
   market_data: MarketData | null;
-  probability_metrics: ProbabilityMetrics | null;
   eval_days_from_now: number | null;        // Days from now used for pl_at_date
   max_days_to_expiration: number | null;    // Max DTE for slider range
   precomputed_dates: Record<number, number[]> | null;  // Pre-computed P/L curves at different dates
@@ -89,8 +80,8 @@ export interface SymbolSearchResponse {
 // Theme type
 export type Theme = 'light' | 'dark' | 'system';
 
-// Volatility Smile types
-export interface SmileDataPoint {
+// Volatility Skew types
+export interface SkewDataPoint {
   strike: number;
   call_iv: number | null;     // null if no data
   put_iv: number | null;
@@ -102,16 +93,16 @@ export interface SmileDataPoint {
   put_ask?: number;
 }
 
-export interface SmileData {
+export interface SkewData {
   symbol: string;
   expiration: string;
   current_price: number;
   atm_iv: number;              // IV at nearest strike
   skew_metric: number | null;  // put_iv - call_iv at 25 delta (or nearest)
-  points: SmileDataPoint[];
+  points: SkewDataPoint[];
 }
 
-export interface SmileResponse {
-  data: SmileData | null;
+export interface SkewResponse {
+  data: SkewData | null;
   error?: string;
 }

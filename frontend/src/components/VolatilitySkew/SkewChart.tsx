@@ -10,14 +10,14 @@ import {
   ReferenceLine,
   ReferenceDot,
 } from 'recharts';
-import type { SmileData } from '../../types';
+import type { SkewData } from '../../types';
 
-interface SmileChartProps {
-  data: SmileData;
+interface SkewChartProps {
+  data: SkewData;
   isDark: boolean;
 }
 
-export default function SmileChart({ data, isDark }: SmileChartProps) {
+export default function SkewChart({ data, isDark }: SkewChartProps) {
   // Format data for Recharts
   const chartData = useMemo(() => {
     return data.points.map(point => ({

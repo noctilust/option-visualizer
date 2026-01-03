@@ -15,7 +15,7 @@ import PositionsTable from './components/PositionsTable';
 import SymbolAutocomplete from './components/SymbolAutocomplete';
 import PLChart from './components/PLChart';
 import DateSelector from './components/DateSelector';
-import { VolatilitySmile } from './components/VolatilitySmile';
+import { VolatilitySkew } from './components/VolatilitySkew';
 
 // Components - Lazy loaded (only when Greeks are shown)
 const GreeksChart = lazy(() => import('./components/GreeksChart'));
@@ -409,7 +409,7 @@ function App() {
               {/* Volatility Skew - Market context for selected expiration */}
               {symbol && marketData && primaryExpiration && (
                 <div className="bg-card border border-border rounded-xl shadow-sm p-4 md:p-5 animate-in fade-in slide-in-from-bottom-4 duration-500 delay-100">
-                  <VolatilitySmile
+                  <VolatilitySkew
                     symbol={symbol}
                     marketData={marketData}
                     selectedExpiration={primaryExpiration}
