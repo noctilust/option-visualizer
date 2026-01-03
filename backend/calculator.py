@@ -574,61 +574,6 @@ def calculate_american_option_binomial(
         return calculate_intrinsic_value(option_type, stock_price, strike)
 
 
-def calculate_probability_metrics(data_points: List[dict], credit: float) -> dict:
-    """
-    Calculate probability of profit and risk/reward metrics
-
-    Args:
-        data_points: List of {price, pl} data points
-        credit: Net credit/debit received
-
-    Returns:
-        Dict with probability_of_profit, max_profit, max_loss, breakeven_points
-    """
-    if not data_points:
-        return {
-            'probability_of_profit': 0.0,
-            'max_profit': 0.0,
-            'max_loss': 0.0,
-            'breakeven_points': [],
-            'risk_reward_ratio': None
-        }
-
-    # Find max profit and max loss
-    pl_values = [d['pl'] for d in data_points]
-    max_profit = max(pl_values)
-    max_loss = min(pl_values)
-
-    # Find breakeven points (where P/L crosses zero)
-    breakeven_points = []
-    for i in range(len(data_points) - 1):
-        p1 = data_points[i]
-        p2 = data_points[i + 1]
-
-        # Check for sign change
-        if (p1['pl'] >= 0 and p2['pl'] < 0) or (p1['pl'] < 0 and p2['pl'] >= 0):
-            # Linear interpolation to find exact breakeven price
-            breakeven_price = p1['price'] + (0 - p1['pl']) * (p2['price'] - p1['price']) / (p2['pl'] - p1['pl'])
-            breakeven_points.append(round(breakeven_price, 2))
-
-    # Calculate probability of profit (simple method: percentage of prices that are profitable)
-    profitable_points = sum(1 for d in data_points if d['pl'] > 0)
-    probability_of_profit = (profitable_points / len(data_points)) * 100 if data_points else 0
-
-    # Calculate risk/reward ratio
-    risk_reward_ratio = None
-    if max_loss < 0 and max_profit > 0:
-        risk_reward_ratio = abs(max_profit / max_loss)
-
-    return {
-        'probability_of_profit': round(probability_of_profit, 1),
-        'max_profit': round(max_profit, 2),
-        'max_loss': round(max_loss, 2),
-        'breakeven_points': sorted(breakeven_points),
-        'risk_reward_ratio': round(risk_reward_ratio, 2) if risk_reward_ratio else None
-    }
-
-
 def calculate_pl(
     positions: List[dict],
     credit: float,
@@ -1055,9 +1000,6 @@ def calculate_pl(
 
         data_points.append(data_point)
 
-    # Calculate probability metrics
-    probability_metrics = calculate_probability_metrics(data_points, credit)
-
     # Calculate max days to expiration (for frontend slider range)
     max_dte = 0
     if positions:
@@ -1096,7 +1038,6 @@ def calculate_pl(
         'positions_with_greeks': positions_with_greeks if can_calculate_bs else None,
         'portfolio_greeks': portfolio_greeks,
         'market_data': market_data,
-        'probability_metrics': probability_metrics,
         'eval_days_from_now': eval_days_from_now,
         'max_days_to_expiration': max_dte,
         'precomputed_dates': precomputed_dates
