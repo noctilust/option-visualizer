@@ -525,6 +525,359 @@ class TastytradeClient:
                 "type": "EQUITY"
             }]
 
+    def _generate_strikes_around_price(self, current_price: float) -> list:
+        """
+        Generate a list of strike prices around the current price.
+
+        Creates strikes from 50% to 150% of current price in $5 or $10 increments.
+
+        Args:
+            current_price: Current underlying price
+
+        Returns:
+            List of strike prices
+        """
+        from datetime import datetime
+
+        # Determine strike interval based on price
+        if current_price < 50:
+            interval = 2.5
+        elif current_price < 200:
+            interval = 5
+        elif current_price < 500:
+            interval = 10
+        else:
+            interval = 20
+
+        min_strike = current_price * 0.5
+        max_strike = current_price * 1.5
+
+        strikes = []
+        current = round(min_strike / interval) * interval
+        while current <= max_strike:
+            strikes.append(round(current, 1))
+            current += interval
+
+        return strikes
+
+    def get_option_chain(self, symbol: str, current_price: float | None = None) -> Dict[str, Any]:
+        """
+        Fetch option chain data (expirations and strikes) from Tastytrade API.
+
+        Args:
+            symbol: Stock symbol (e.g., 'AAPL')
+
+        Returns:
+            Dict with:
+                - expirations: list of expiration dates in ISO format
+                - strikes_by_expiration: dict mapping expiration -> list of strikes
+                - underlying_price: current underlying price
+        """
+        if not self._ensure_token():
+            return {"expirations": [], "strikes_by_expiration": {}, "underlying_price": None}
+
+        try:
+            # First, fetch available expirations for this symbol
+            response = httpx.get(
+                f"{TASTYTRADE_API_URL}/option-chains/{symbol}/expirations",
+                headers={"Authorization": f"Bearer {self._access_token}"},
+                timeout=15.0
+            )
+
+            if response.status_code == 404:
+                logger.warning(f"No option chain found for {symbol}")
+                return {"expirations": [], "strikes_by_expiration": {}, "underlying_price": None}
+
+            response.raise_for_status()
+            data = response.json()
+
+            # Parse expirations
+            items = data.get("data", {}).get("items", [])
+            expirations = []
+            for item in items:
+                exp_str = item.get("expiration-date", "")
+                if exp_str:
+                    # Convert to ISO format (YYYY-MM-DD)
+                    try:
+                        # Tastytrade returns format like "2025-02-20T00:00:00+0000" or similar
+                        from datetime import datetime
+                        # Handle various date formats
+                        if "T" in exp_str:
+                            exp_date = datetime.fromisoformat(exp_str.replace("Z", "+00:00").replace("+0000", "+00:00"))
+                        else:
+                            exp_date = datetime.strptime(exp_str, "%Y-%m-%d")
+                        expirations.append(exp_date.strftime("%Y-%m-%d"))
+                    except Exception as e:
+                        logger.warning(f"Could not parse expiration date {exp_str}: {e}")
+
+            if not expirations:
+                logger.warning(f"No valid expirations found for {symbol}")
+                return {"expirations": [], "strikes_by_expiration": {}, "underlying_price": None}
+
+            # Fetch strikes for each expiration
+            # Tastytrade API allows fetching all strikes in one call by passing multiple expirations
+            strikes_by_expiration = {}
+
+            # Get strikes for all expirations
+            # We'll batch the requests to avoid overwhelming the API
+            for i in range(0, len(expirations), min(10, len(expirations))):
+                batch_expirations = expirations[i:i + 10]
+                expirations_param = ",".join(batch_expirations)
+
+                try:
+                    strikes_response = httpx.get(
+                        f"{TASTYTRADE_API_URL}/option-chains/{symbol}/strikes",
+                        params={"expirations": expirations_param},
+                        headers={"Authorization": f"Bearer {self._access_token}"},
+                        timeout=15.0
+                    )
+                    strikes_response.raise_for_status()
+                    strikes_data = strikes_response.json()
+
+                    # Parse strikes for each expiration
+                    strikes_items = strikes_data.get("data", {}).get("items", [])
+                    for item in strikes_items:
+                        exp_str = item.get("expiration-date", "")
+                        if "T" in exp_str:
+                            from datetime import datetime
+                            exp_date = datetime.fromisoformat(exp_str.replace("Z", "+00:00").replace("+0000", "+00:00"))
+                            exp_iso = exp_date.strftime("%Y-%m-%d")
+                        else:
+                            exp_iso = exp_str[:10]
+
+                        strikes = item.get("strikes", [])
+                        if strikes:
+                            strikes_by_expiration[exp_iso] = strikes
+
+                except Exception as e:
+                    logger.error(f"Error fetching strikes for {symbol}: {e}")
+                    # Continue with next batch
+
+            # Get underlying price from the first response
+            underlying_price = None
+            if items:
+                underlying_price = self._safe_float(items[0].get("underlying-price"))
+
+            logger.info(f"Fetched option chain for {symbol}: {len(expirations)} expirations, "
+                       f"{sum(len(s) for s in strikes_by_expiration.values())} total strike-sets")
+
+            return {
+                "expirations": expirations,
+                "strikes_by_expiration": strikes_by_expiration,
+                "underlying_price": underlying_price
+            }
+
+        except httpx.HTTPStatusError as e:
+            logger.error(f"HTTP error fetching option chain for {symbol}: {e.response.status_code}")
+            return {"expirations": [], "strikes_by_expiration": {}, "underlying_price": None}
+        except Exception as e:
+            logger.error(f"Error fetching option chain for {symbol}: {e}")
+            import traceback
+            logger.debug(traceback.format_exc())
+            return {"expirations": [], "strikes_by_expiration": {}, "underlying_price": None}
+
+    def _find_valid_expiration(
+        self,
+        symbol: str,
+        preferred_expiration: str,
+        current_price: float
+    ) -> str | None:
+        """
+        Find a valid expiration date that has options data.
+
+        Tries the preferred expiration first, then searches forward monthly
+        expirations until it finds one with data.
+
+        Args:
+            symbol: Stock symbol
+            preferred_expiration: Preferred expiration in ISO format
+            current_price: Current underlying price
+
+        Returns:
+            Valid expiration date in ISO format or None
+        """
+        from datetime import datetime, timedelta
+        from calendar import monthrange
+
+        # First, try the requested expiration
+        # Test with ATM strike to see if data exists
+        test_strike = round(current_price / 10) * 10
+        result = self.get_option_greeks(symbol, test_strike, preferred_expiration, "C")
+        if result and result.get("implied_volatility"):
+            return preferred_expiration
+
+        # If not, try finding the next monthly expiration (3rd Friday)
+        exp_date = datetime.strptime(preferred_expiration, "%Y-%m-%d")
+        if exp_date.date() < datetime.now().date():
+            # Expiration is in the past, start from next month
+            exp_date = datetime.now().replace(day=1) + timedelta(days=32)
+            exp_date = exp_date.replace(day=1)
+
+        # Try up to 12 monthly expirations
+        for month_offset in range(12):
+            # Calculate 3rd Friday of the month
+            year = exp_date.year
+            month = exp_date.month + month_offset
+
+            # Handle year rollover
+            while month > 12:
+                month -= 12
+                year += 1
+
+            # Find first Friday
+            first_day = datetime(year, month, 1)
+            first_friday = (4 - first_day.weekday()) % 7 + 1
+            if first_friday < 1:
+                first_friday += 7
+
+            # 3rd Friday is first_friday + 14
+            third_friday = first_friday + 14
+
+            # Check if within month bounds
+            _, last_day = monthrange(year, month)
+            if third_friday > last_day:
+                third_friday = last_day
+
+            exp_iso = datetime(year, month, third_friday).strftime("%Y-%m-%d")
+
+            # Test this expiration
+            result = self.get_option_greeks(symbol, test_strike, exp_iso, "C")
+            if result and result.get("implied_volatility"):
+                logger.info(f"Found valid expiration: {exp_iso} (requested: {preferred_expiration})")
+                return exp_iso
+
+        return None
+
+    def get_volatility_smile(
+        self,
+        symbol: str,
+        expiration: str,
+        current_price: float
+    ) -> Dict[str, Any]:
+        """
+        Fetch volatility smile data for a specific expiration.
+
+        If the requested expiration doesn't have data, attempts to find
+        the next available monthly expiration.
+
+        Args:
+            symbol: Stock symbol
+            expiration: Expiration date in ISO format (YYYY-MM-DD)
+            current_price: Current underlying price
+
+        Returns:
+            Dict with:
+                - points: list of SmileDataPoint with strike, iv, delta, etc.
+                - atm_iv: IV at nearest strike to current price
+                - skew_metric: put_iv - call_iv at ~25 delta
+        """
+        if not self._ensure_token():
+            return {"points": [], "atm_iv": 0, "skew_metric": None}
+
+        try:
+            # Find a valid expiration (may differ from requested)
+            valid_expiration = self._find_valid_expiration(symbol, expiration, current_price)
+
+            if not valid_expiration:
+                logger.warning(f"Could not find valid expiration for {symbol}")
+                return {"points": [], "atm_iv": 0, "skew_metric": None}
+
+            # Generate strikes dynamically around current price
+            filtered_strikes = self._generate_strikes_around_price(current_price)
+
+            if not filtered_strikes:
+                logger.warning(f"Could not generate strikes for {symbol} at price {current_price}")
+                return {"points": [], "atm_iv": 0, "skew_metric": None}
+
+            # Build positions list for batch fetch
+            positions = []
+            for strike in filtered_strikes:
+                positions.append({
+                    "symbol": symbol,
+                    "strike": strike,
+                    "expiration_date": valid_expiration,
+                    "option_type": "C"
+                })
+                positions.append({
+                    "symbol": symbol,
+                    "strike": strike,
+                    "expiration_date": valid_expiration,
+                    "option_type": "P"
+                })
+
+            # Batch fetch all Greeks
+            greeks_data = self.get_batch_option_greeks(positions)
+
+            # Build smile data points
+            points = []
+            atm_iv = 0
+            nearest_distance = float('inf')
+
+            # For skew metric calculation
+            call_25_delta_iv = None
+            put_25_delta_iv = None
+
+            for strike in filtered_strikes:
+                call_key = f"{symbol}_{strike}_{valid_expiration}_C"
+                put_key = f"{symbol}_{strike}_{valid_expiration}_P"
+
+                call_data = greeks_data.get(call_key)
+                put_data = greeks_data.get(put_key)
+
+                point = {
+                    "strike": strike,
+                    "call_iv": call_data.get("implied_volatility") if call_data else None,
+                    "put_iv": put_data.get("implied_volatility") if put_data else None,
+                    "call_delta": call_data.get("delta") if call_data else None,
+                    "put_delta": put_data.get("delta") if put_data else None,
+                    "call_bid": call_data.get("bid") if call_data else None,
+                    "call_ask": call_data.get("ask") if call_data else None,
+                    "put_bid": put_data.get("bid") if put_data else None,
+                    "put_ask": put_data.get("ask") if put_data else None,
+                }
+
+                # Track ATM IV (nearest strike to current price)
+                distance = abs(strike - current_price)
+                if distance < nearest_distance:
+                    nearest_distance = distance
+                    # Use average of call and put IV at ATM
+                    call_iv = point["call_iv"] or 0
+                    put_iv = point["put_iv"] or 0
+                    if call_iv and put_iv:
+                        atm_iv = (call_iv + put_iv) / 2
+                    elif call_iv:
+                        atm_iv = call_iv
+                    elif put_iv:
+                        atm_iv = put_iv
+
+                # Track skew metric (25 delta options)
+                if point["call_delta"] and 0.20 <= point["call_delta"] <= 0.30 and point["call_iv"]:
+                    call_25_delta_iv = point["call_iv"]
+                if point["put_delta"] and -0.30 <= point["put_delta"] <= -0.20 and point["put_iv"]:
+                    put_25_delta_iv = point["put_iv"]
+
+                points.append(point)
+
+            # Calculate skew metric
+            skew_metric = None
+            if put_25_delta_iv is not None and call_25_delta_iv is not None:
+                skew_metric = put_25_delta_iv - call_25_delta_iv
+
+            logger.info(f"Fetched volatility smile for {symbol} {expiration}: "
+                       f"{len(points)} strikes, ATM IV={atm_iv:.2%}, Skew={skew_metric}")
+
+            return {
+                "points": points,
+                "atm_iv": atm_iv,
+                "skew_metric": skew_metric
+            }
+
+        except Exception as e:
+            logger.error(f"Error fetching volatility smile for {symbol}: {e}")
+            import traceback
+            logger.debug(traceback.format_exc())
+            return {"points": [], "atm_iv": 0, "skew_metric": None}
+
     def _safe_float(self, value: Any, divide_by: float = 1, multiply_by: float = 1) -> Optional[float]:
         """Safely convert value to float with optional scaling"""
         if value is None:

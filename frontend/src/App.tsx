@@ -1,4 +1,4 @@
-import { useEffect, useRef, lazy, Suspense } from 'react';
+import { useEffect, useRef, lazy, Suspense, useMemo } from 'react';
 import { Sun, Moon, RotateCcw, TrendingUp, Loader2, DollarSign, Activity, BarChart3, Percent } from 'lucide-react';
 import { Toaster } from 'react-hot-toast';
 
@@ -16,10 +16,59 @@ import SymbolAutocomplete from './components/SymbolAutocomplete';
 import PLChart from './components/PLChart';
 import ProbabilityMetrics from './components/ProbabilityMetrics';
 import DateSelector from './components/DateSelector';
+import { VolatilitySmile } from './components/VolatilitySmile';
 
 // Components - Lazy loaded (only when Greeks are shown)
 const GreeksChart = lazy(() => import('./components/GreeksChart'));
 const GreeksVisualization = lazy(() => import('./components/GreeksVisualization'));
+
+/**
+ * Parse position expiration format (e.g., "Dec 19 25" or "Dec 19") to ISO date (YYYY-MM-DD)
+ *
+ * Handles year logic:
+ * - If year is provided (e.g., "Dec 19 25"), use that year (2025)
+ * - If no year (e.g., "Jan 16"), use current year
+ * - If resulting date is in the past, increment to next year
+ */
+function parsePositionExpiration(expiration: string): string | null {
+  if (!expiration) return null;
+
+  try {
+    // Format: "Dec 19 25" or "Dec 19"
+    const parts = expiration.trim().split(/\s+/);
+    if (parts.length < 2) return null;
+
+    const monthStr = parts[0];
+    const dayStr = parts[1];
+    const currentYear = new Date().getFullYear();
+    const yearStr = parts[2] || currentYear.toString().slice(-2);
+
+    // Convert month name to number
+    const months: Record<string, number> = {
+      Jan: 0, Feb: 1, Mar: 2, Apr: 3, May: 4, Jun: 5,
+      Jul: 6, Aug: 7, Sep: 8, Oct: 9, Nov: 10, Dec: 11
+    };
+    const month = months[monthStr];
+    if (month === undefined) return null;
+
+    const day = parseInt(dayStr, 10);
+    let year = 2000 + parseInt(yearStr, 10);
+
+    const date = new Date(year, month, day);
+    const now = new Date();
+
+    // If date is in the past and no explicit year was provided, use next year
+    if (date < now && parts.length < 3) {
+      year += 1;
+      const newDate = new Date(year, month, day);
+      return newDate.toISOString().split('T')[0];
+    }
+
+    return date.toISOString().split('T')[0];
+  } catch {
+    return null;
+  }
+}
 
 function App() {
   // Theme hook
@@ -81,6 +130,37 @@ function App() {
   // Ref for scrolling to analysis section
   const analysisSectionRef = useRef<HTMLDivElement>(null);
   const prevChartDataLengthRef = useRef(0);
+
+  // Get primary expiration from positions for volatility smile
+  // Use the most common expiration, or first position's expiration
+  const primaryExpiration = useMemo(() => {
+    if (positions.length === 0) return '';
+
+    // Count expirations
+    const expirationCounts = new Map<string, number>();
+    for (const pos of positions) {
+      const parsed = parsePositionExpiration(pos.expiration);
+      if (parsed) {
+        expirationCounts.set(parsed, (expirationCounts.get(parsed) || 0) + 1);
+      }
+    }
+
+    if (expirationCounts.size === 0) {
+      // Fallback: try to parse first position
+      return parsePositionExpiration(positions[0].expiration) || '';
+    }
+
+    // Return most common expiration
+    let maxCount = 0;
+    let mostCommon = '';
+    for (const [exp, count] of expirationCounts) {
+      if (count > maxCount) {
+        maxCount = count;
+        mostCommon = exp;
+      }
+    }
+    return mostCommon;
+  }, [positions]);
 
   // Scroll to analysis section when chart data is first rendered
   useEffect(() => {
@@ -410,6 +490,18 @@ function App() {
                     evalDaysFromNow={evalDaysFromNow}
                     setEvalDaysFromNow={setEvalDaysFromNow}
                     maxDaysToExpiration={maxDaysToExpiration}
+                  />
+                </div>
+              )}
+
+              {/* Volatility Smile Section */}
+              {symbol && marketData && primaryExpiration && (
+                <div className="mt-8 pt-8 border-t">
+                  <VolatilitySmile
+                    symbol={symbol}
+                    marketData={marketData}
+                    selectedExpiration={primaryExpiration}
+                    isDark={isDark}
                   />
                 </div>
               )}

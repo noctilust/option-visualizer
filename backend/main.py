@@ -107,6 +107,104 @@ async def get_market_data(symbol: str):
             detail=f"Failed to fetch market data for {symbol}: {str(e)}"
         )
 
+@app.get("/volatility-smile/{symbol}")
+async def get_volatility_smile(symbol: str, expiration: str):
+    """
+    Fetch volatility smile data for a specific symbol and expiration.
+
+    Args:
+        symbol: Stock ticker symbol (e.g., 'AAPL')
+        expiration: Expiration date in YYYY-MM-DD format
+
+    Returns:
+        Volatility smile data including per-strike IV, ATM IV, and skew metric
+    """
+    try:
+        from tastytrade_client import get_tastytrade_client
+
+        # Validate expiration format
+        try:
+            from datetime import datetime
+            datetime.strptime(expiration, "%Y-%m-%d")
+        except ValueError:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Invalid expiration format: {expiration}. Use YYYY-MM-DD"
+            )
+
+        # Get current price for the symbol
+        stock_price = market_data_fetcher.get_stock_price(symbol)
+
+        # Fetch volatility smile data from Tastytrade
+        tastytrade = get_tastytrade_client()
+        if not tastytrade.is_enabled:
+            raise HTTPException(
+                status_code=503,
+                detail="Tastytrade API is not configured. Please set TASTYTRADE_CLIENT_SECRET and TASTYTRADE_REFRESH_TOKEN environment variables."
+            )
+
+        smile_data = tastytrade.get_volatility_smile(
+            symbol.upper(),
+            expiration,
+            stock_price
+        )
+
+        return {
+            "data": {
+                "symbol": symbol.upper(),
+                "expiration": expiration,
+                "current_price": stock_price,
+                "atm_iv": smile_data["atm_iv"],
+                "skew_metric": smile_data["skew_metric"],
+                "points": smile_data["points"]
+            }
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to fetch volatility smile for {symbol}: {str(e)}"
+        )
+
+@app.get("/option-chain/{symbol}")
+async def get_option_chain(symbol: str):
+    """
+    Fetch option chain data (expirations and strikes) for a symbol.
+
+    Args:
+        symbol: Stock ticker symbol (e.g., 'AAPL')
+
+    Returns:
+        Available expirations and strikes for each expiration
+    """
+    try:
+        from tastytrade_client import get_tastytrade_client
+
+        tastytrade = get_tastytrade_client()
+        if not tastytrade.is_enabled:
+            raise HTTPException(
+                status_code=503,
+                detail="Tastytrade API is not configured. Please set TASTYTRADE_CLIENT_SECRET and TASTYTRADE_REFRESH_TOKEN environment variables."
+            )
+
+        chain_data = tastytrade.get_option_chain(symbol.upper())
+
+        return {
+            "expirations": chain_data["expirations"],
+            "strikes_by_expiration": chain_data["strikes_by_expiration"],
+            "underlying_price": chain_data.get("underlying_price")
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to fetch option chain for {symbol}: {str(e)}"
+        )
+
 @app.post("/upload")
 async def upload_image(file: UploadFile = File(...)):
     try:

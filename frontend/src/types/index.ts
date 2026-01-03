@@ -88,3 +88,30 @@ export interface SymbolSearchResponse {
 
 // Theme type
 export type Theme = 'light' | 'dark' | 'system';
+
+// Volatility Smile types
+export interface SmileDataPoint {
+  strike: number;
+  call_iv: number | null;     // null if no data
+  put_iv: number | null;
+  call_delta?: number;
+  put_delta?: number;
+  call_bid?: number;
+  call_ask?: number;
+  put_bid?: number;
+  put_ask?: number;
+}
+
+export interface SmileData {
+  symbol: string;
+  expiration: string;
+  current_price: number;
+  atm_iv: number;              // IV at nearest strike
+  skew_metric: number | null;  // put_iv - call_iv at 25 delta (or nearest)
+  points: SmileDataPoint[];
+}
+
+export interface SmileResponse {
+  data: SmileData | null;
+  error?: string;
+}
