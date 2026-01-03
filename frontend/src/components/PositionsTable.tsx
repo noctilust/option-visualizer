@@ -1,6 +1,7 @@
 import { useRef, type ChangeEvent, type FocusEvent, type MouseEvent } from 'react';
 import { Trash2, Plus } from 'lucide-react';
 import type { Position, PositionWithGreeks, PortfolioGreeks } from '../types';
+import ExpirationDropdown from './ExpirationDropdown';
 
 let nextId = 1;
 export const generateId = (): string => `pos_${nextId++}_${Date.now()}`;
@@ -100,13 +101,17 @@ interface PositionsTableProps {
   setPositions: React.Dispatch<React.SetStateAction<Position[]>>;
   greeksData?: PositionWithGreeks[] | null;
   showGreeks?: boolean;
+  isDark?: boolean;
+  symbol?: string;
 }
 
 export default function PositionsTable({
   positions,
   setPositions,
   greeksData = null,
-  showGreeks = false
+  showGreeks = false,
+  isDark = false,
+  symbol = ''
 }: PositionsTableProps) {
   const ignoreMouseUp = useRef(false);
 
@@ -266,16 +271,13 @@ export default function PositionsTable({
                     </div>
                   </td>
                   <td className={cellPadding}>
-                    <input
-                      type="text"
+                    <ExpirationDropdown
                       value={pos.expiration}
-                      onChange={(e: ChangeEvent<HTMLInputElement>) => handleChange(index, 'expiration', e.target.value)}
-                      onBlur={(e: FocusEvent<HTMLInputElement>) => {
-                        const formatted = formatExpiration(e.target.value);
-                        handleChange(index, 'expiration', formatted);
-                      }}
-                      placeholder={DEFAULT_EXPIRATION}
-                      className={`${showGreeks ? 'w-20 px-1.5 py-0.5 text-sm' : 'w-full px-2 py-1'} border rounded bg-background`}
+                      onChange={(value) => handleChange(index, 'expiration', value)}
+                      isDark={isDark}
+                      compact={showGreeks}
+                      symbol={symbol}
+                      valueFormat="position"
                     />
                   </td>
                   <td className={cellPadding}>

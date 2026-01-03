@@ -1,6 +1,7 @@
-import { useEffect } from 'react';
-import { TrendingUp, AlertCircle, Loader2, Calendar } from 'lucide-react';
+import { useEffect, useState } from 'react';
+import { TrendingUp, AlertCircle, Loader2 } from 'lucide-react';
 import SmileChart from './SmileChart';
+import ExpirationDropdown from '../ExpirationDropdown';
 import { useVolatilitySmile } from '../../hooks/useVolatilitySmile';
 import type { MarketData } from '../../types';
 
@@ -15,28 +16,33 @@ interface VolatilitySmileProps {
 export default function VolatilitySmile({
   symbol,
   marketData,
-  selectedExpiration,
+  selectedExpiration: propExpiration,
   isDark,
   onExpirationChange,
 }: VolatilitySmileProps) {
+  // Local state for expiration
+  const [localExpiration, setLocalExpiration] = useState(propExpiration);
+
+  // Update local when prop changes
+  useEffect(() => {
+    setLocalExpiration(propExpiration);
+  }, [propExpiration]);
+
   const { smileData, loading, error, fetchSmileData, clearSmileData } = useVolatilitySmile();
 
   // Fetch smile data when symbol or expiration changes
   useEffect(() => {
-    if (symbol && selectedExpiration && marketData?.current_price) {
-      fetchSmileData(symbol, selectedExpiration);
+    if (symbol && localExpiration && marketData?.current_price) {
+      fetchSmileData(symbol, localExpiration);
     } else {
       clearSmileData();
     }
-  }, [symbol, selectedExpiration, marketData?.current_price, fetchSmileData, clearSmileData]);
+  }, [symbol, localExpiration, marketData?.current_price, fetchSmileData, clearSmileData]);
 
-  // Format date for display
-  const formatDate = (dateStr: string) => {
-    try {
-      const date = new Date(dateStr);
-      return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
-    } catch {
-      return dateStr;
+  const handleExpirationChange = (expiration: string) => {
+    setLocalExpiration(expiration);
+    if (onExpirationChange) {
+      onExpirationChange(expiration);
     }
   };
 
@@ -59,11 +65,15 @@ export default function VolatilitySmile({
           <TrendingUp className="w-5 h-5 text-primary" />
           Volatility Smile
         </h2>
-        {selectedExpiration && (
-          <div className="flex items-center gap-1.5 text-sm text-muted-foreground bg-muted/50 px-3 py-1.5 rounded-full">
-            <Calendar className="w-4 h-4" />
-            <span>{formatDate(selectedExpiration)}</span>
-          </div>
+
+        {/* Expiration Selector */}
+        {symbol && (
+          <ExpirationDropdown
+            symbol={symbol}
+            value={localExpiration}
+            onChange={handleExpirationChange}
+            isDark={isDark}
+          />
         )}
       </div>
 
