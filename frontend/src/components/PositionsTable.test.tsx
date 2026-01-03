@@ -33,8 +33,8 @@ describe('PositionsTable', () => {
 
     expect(screen.getByText('Positions')).toBeInTheDocument();
     expect(screen.getByDisplayValue('-1')).toBeInTheDocument();
-    // Both positions have same expiration, so use getAllBy
-    expect(screen.getAllByDisplayValue('Jan 16')).toHaveLength(2);
+    // ExpirationDropdown renders a button with text content, not a form input
+    expect(screen.getAllByText(/Jan 16/)).toHaveLength(2);
     expect(screen.getByDisplayValue('100')).toBeInTheDocument();
     expect(screen.getByDisplayValue('110')).toBeInTheDocument();
   });

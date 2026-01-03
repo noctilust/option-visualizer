@@ -5,7 +5,6 @@ import type {
   ChartDataPoint,
   PositionWithGreeks,
   PortfolioGreeks,
-  ProbabilityMetrics,
   MarketData,
   CalculateResponse,
 } from '../types';
@@ -38,7 +37,6 @@ interface UseCalculationReturn {
   setShowGreeks: (show: boolean) => void;
   greeksData: PositionWithGreeks[] | null;
   portfolioGreeks: PortfolioGreeks | null;
-  probabilityMetrics: ProbabilityMetrics | null;
   evalDaysFromNow: number | null;
   setEvalDaysFromNow: (days: number | null) => void;
   maxDaysToExpiration: number | null;
@@ -52,7 +50,7 @@ interface UseCalculationReturn {
 
 // Generate unique ID for positions
 export function generateId(): string {
-  return Math.random().toString(36).substring(2, 9);
+  return `pos_${Math.random().toString(36).substring(2, 9)}`;
 }
 
 // Calculate default expiration (3rd Friday of next month)
@@ -102,7 +100,6 @@ export function useCalculation({
   const [showGreeks, setShowGreeks] = useState(false);
   const [greeksData, setGreeksData] = useState<PositionWithGreeks[] | null>(null);
   const [portfolioGreeks, setPortfolioGreeks] = useState<PortfolioGreeks | null>(null);
-  const [probabilityMetrics, setProbabilityMetrics] = useState<ProbabilityMetrics | null>(null);
 
   // P/L at different dates state (default to today = 0)
   const [evalDaysFromNow, setEvalDaysFromNow] = useState<number | null>(0);
@@ -293,7 +290,6 @@ export function useCalculation({
           setChartData(data.data || []);
           setGreeksData(data.positions_with_greeks || null);
           setPortfolioGreeks(data.portfolio_greeks || null);
-          setProbabilityMetrics(data.probability_metrics || null);
           if (data.market_data) {
             setMarketData(data.market_data);
           }
@@ -349,7 +345,6 @@ export function useCalculation({
         // Set Greeks data if available
         setGreeksData(data.positions_with_greeks || null);
         setPortfolioGreeks(data.portfolio_greeks || null);
-        setProbabilityMetrics(data.probability_metrics || null);
 
         // Also set market data from calculation response if available
         if (data.market_data) {
@@ -437,7 +432,6 @@ export function useCalculation({
     setShowGreeks,
     greeksData,
     portfolioGreeks,
-    probabilityMetrics,
     evalDaysFromNow,
     setEvalDaysFromNow,
     maxDaysToExpiration,
