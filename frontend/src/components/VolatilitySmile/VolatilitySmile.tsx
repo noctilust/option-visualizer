@@ -63,7 +63,7 @@ export default function VolatilitySmile({
       <div className="flex items-center justify-between mb-4">
         <h2 className="text-xl font-semibold flex items-center gap-2">
           <TrendingUp className="w-5 h-5 text-primary" />
-          Volatility Smile
+          Volatility Skew
         </h2>
 
         {/* Expiration Selector */}
@@ -97,7 +97,7 @@ export default function VolatilitySmile({
         <div className="h-[350px] flex items-center justify-center">
           <div className="flex flex-col items-center gap-3 text-muted-foreground">
             <Loader2 className="w-8 h-8 animate-spin" />
-            <span className="text-sm">Fetching volatility smile data...</span>
+            <span className="text-sm">Fetching volatility skew data...</span>
           </div>
         </div>
       )}
@@ -169,7 +169,7 @@ export default function VolatilitySmile({
           <div className="flex flex-col items-center gap-3 text-muted-foreground">
             <TrendingUp className="w-12 h-12 opacity-50" />
             <span className="text-sm">
-              {symbol ? 'Select an expiration to view volatility smile' : 'Enter a symbol to view volatility smile'}
+              {symbol ? 'Select an expiration to view volatility skew' : 'Enter a symbol to view volatility skew'}
             </span>
           </div>
         </div>

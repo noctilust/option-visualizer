@@ -406,7 +406,7 @@ function App() {
                 />
               </div>
 
-              {/* Volatility Smile - Market context for selected expiration */}
+              {/* Volatility Skew - Market context for selected expiration */}
               {symbol && marketData && primaryExpiration && (
                 <div className="bg-card border border-border rounded-xl shadow-sm p-4 md:p-5 animate-in fade-in slide-in-from-bottom-4 duration-500 delay-100">
                   <VolatilitySmile
