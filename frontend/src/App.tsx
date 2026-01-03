@@ -14,7 +14,6 @@ import InputSection from './components/InputSection';
 import PositionsTable from './components/PositionsTable';
 import SymbolAutocomplete from './components/SymbolAutocomplete';
 import PLChart from './components/PLChart';
-import ProbabilityMetrics from './components/ProbabilityMetrics';
 import DateSelector from './components/DateSelector';
 import { VolatilitySmile } from './components/VolatilitySmile';
 
@@ -102,7 +101,6 @@ function App() {
     setShowGreeks,
     greeksData,
     portfolioGreeks,
-    probabilityMetrics,
     evalDaysFromNow,
     setEvalDaysFromNow,
     maxDaysToExpiration,
@@ -231,10 +229,10 @@ function App() {
 
         <header className="text-center mb-12">
           <h1 className="text-4xl font-extrabold tracking-tight lg:text-5xl mb-4 bg-gradient-to-r from-primary to-blue-600 bg-clip-text text-transparent">
-            Option Premium Visualizer
+            Option Strategy Visualizer
           </h1>
           <p className="text-muted-foreground text-lg">
-            Analyze your P/L from option strategies instantly.
+            Visualize P/L, Greeks, and volatility for any option strategy.
           </p>
         </header>
 
@@ -403,8 +401,22 @@ function App() {
                   setPositions={setPositions}
                   greeksData={greeksData}
                   showGreeks={showGreeks && portfolioGreeks !== null}
+                  isDark={isDark}
+                  symbol={symbol}
                 />
               </div>
+
+              {/* Volatility Smile - Market context for selected expiration */}
+              {symbol && marketData && primaryExpiration && (
+                <div className="bg-card border border-border rounded-xl shadow-sm p-4 md:p-5 animate-in fade-in slide-in-from-bottom-4 duration-500 delay-100">
+                  <VolatilitySmile
+                    symbol={symbol}
+                    marketData={marketData}
+                    selectedExpiration={primaryExpiration}
+                    isDark={isDark}
+                  />
+                </div>
+              )}
 
               <div className="bg-card border border-border rounded-xl shadow-sm p-4 md:p-5 animate-in fade-in slide-in-from-bottom-4 duration-500 delay-150">
                 <h2 className="text-xl font-semibold mb-4">4. Enter Amount</h2>
@@ -440,7 +452,7 @@ function App() {
               className="bg-card border border-border rounded-xl shadow-sm p-4 md:p-5 text-foreground animate-in fade-in slide-in-from-bottom-4 duration-500"
             >
               <div className="flex justify-between items-center mb-4">
-                <h2 className="text-xl font-semibold">5. Analysis</h2>
+                <h2 className="text-xl font-semibold">5. P/L Analysis</h2>
                 <div className="flex items-center gap-4">
                   <label className="flex items-center gap-2 cursor-pointer">
                     <input
@@ -491,25 +503,6 @@ function App() {
                     setEvalDaysFromNow={setEvalDaysFromNow}
                     maxDaysToExpiration={maxDaysToExpiration}
                   />
-                </div>
-              )}
-
-              {/* Volatility Smile Section */}
-              {symbol && marketData && primaryExpiration && (
-                <div className="mt-8 pt-8 border-t">
-                  <VolatilitySmile
-                    symbol={symbol}
-                    marketData={marketData}
-                    selectedExpiration={primaryExpiration}
-                    isDark={isDark}
-                  />
-                </div>
-              )}
-
-              {/* Probability Metrics Section */}
-              {probabilityMetrics && (
-                <div className="mt-8 pt-8 border-t">
-                  <ProbabilityMetrics probabilityMetrics={probabilityMetrics} />
                 </div>
               )}
 
