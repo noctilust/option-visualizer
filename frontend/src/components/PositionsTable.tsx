@@ -2,37 +2,7 @@ import { useRef, type ChangeEvent, type FocusEvent, type MouseEvent } from 'reac
 import { Trash2, Plus } from 'lucide-react';
 import type { Position, PositionWithGreeks, PortfolioGreeks } from '../types';
 import ExpirationDropdown from './ExpirationDropdown';
-
-let nextId = 1;
-export const generateId = (): string => `pos_${nextId++}_${Date.now()}`;
-
-// Calculate next monthly options expiration (3rd Friday of next month)
-const getDefaultExpiration = (): string => {
-  const now = new Date();
-  // Start from next month
-  let month = now.getMonth() + 1;
-  let year = now.getFullYear();
-  if (month > 11) {
-    month = 0;
-    year++;
-  }
-
-  // Find 3rd Friday of that month
-  let fridayCount = 0;
-  let day = 1;
-  while (fridayCount < 3) {
-    const d = new Date(year, month, day);
-    if (d.getDay() === 5) fridayCount++;
-    if (fridayCount < 3) day++;
-  }
-
-  // Format as "Jan 17 26"
-  const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-  const shortYear = String(year).slice(-2);
-  return `${months[month]} ${day} ${shortYear}`;
-};
-
-export const DEFAULT_EXPIRATION = getDefaultExpiration();
+import { generateId, DEFAULT_EXPIRATION } from '../hooks/useCalculation';
 
 // Parse and format expiration date to standard "Jan 17 26" format
 const formatExpiration = (input: string): string => {

@@ -1,6 +1,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
-import PositionsTable, { generateId } from './PositionsTable';
+import PositionsTable from './PositionsTable';
+import { generateId } from '../hooks/useCalculation';
 import type { Position } from '../types';
 
 describe('generateId', () => {
