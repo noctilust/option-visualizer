@@ -5,8 +5,8 @@ React frontend for options visualization.
 ## Setup
 
 ```bash
-npm install
-npm run dev
+bun install
+bun run dev
 ```
 
 Open [http://localhost:5173](http://localhost:5173)
@@ -15,9 +15,9 @@ Open [http://localhost:5173](http://localhost:5173)
 
 | Command | Description |
 |---------|-------------|
-| `npm run dev` | Development server |
-| `npm run build` | Production build |
-| `npm test` | Run tests |
+| `bun run dev` | Development server |
+| `bun run build` | Production build |
+| `bun run test` | Run tests |
 
 ## Environment Variables
 

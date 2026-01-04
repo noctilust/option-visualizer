@@ -1,15 +1,15 @@
 # Build Stage for Frontend
-FROM node:20-alpine as build-frontend
+FROM oven/bun:1-alpine as build-frontend
 
 WORKDIR /app/frontend
 
 # Copy dependencies first for caching
-COPY frontend/package*.json ./
-RUN npm install
+COPY frontend/package.json frontend/bun.lock ./
+RUN bun install --frozen-lockfile
 
 # Copy source and build
 COPY frontend/ .
-RUN npm run build
+RUN bun run build
 
 # Runtime Stage for Backend
 # Use Python 3.12 to match pyproject.toml requirements
