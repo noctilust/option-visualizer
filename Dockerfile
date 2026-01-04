@@ -9,7 +9,8 @@ RUN bun install --frozen-lockfile
 
 # Copy source and build
 COPY frontend/ .
-RUN bun run build
+# Explicitly set empty API URL for production (uses relative URLs)
+RUN VITE_API_URL= bun run build
 
 # Runtime Stage for Backend
 # Use Python 3.12 to match pyproject.toml requirements
