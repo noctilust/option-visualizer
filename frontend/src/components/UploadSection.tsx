@@ -18,6 +18,7 @@ export default function UploadSection({ onFileSelect, onManualEntry, resetKey, l
 
   // Reset internal state when resetKey changes
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setSelectedFile(null);
     setMode(null);
     setDragActive(false);

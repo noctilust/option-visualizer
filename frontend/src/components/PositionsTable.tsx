@@ -4,68 +4,6 @@ import type { Position, PositionWithGreeks, PortfolioGreeks } from '../types';
 import ExpirationDropdown from './ExpirationDropdown';
 import { generateId, DEFAULT_EXPIRATION } from '../hooks/useCalculation';
 
-// Parse and format expiration date to standard "Jan 17 26" format
-const formatExpiration = (input: string): string => {
-  if (!input || input.trim() === '') return DEFAULT_EXPIRATION;
-
-  const str = input.trim();
-  const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-
-  let date: Date | null = null;
-
-  // Try "Jan 17 26" format first
-  const match1 = str.match(/^([A-Za-z]{3})\s+(\d{1,2})\s+(\d{2})$/);
-  if (match1) {
-    const monthIdx = months.findIndex(m => m.toLowerCase() === match1[1].toLowerCase());
-    if (monthIdx !== -1) {
-      date = new Date(2000 + parseInt(match1[3]), monthIdx, parseInt(match1[2]));
-    }
-  }
-
-  // Try "Jan 17" format (assumes current or next year)
-  if (!date) {
-    const match2 = str.match(/^([A-Za-z]{3})\s+(\d{1,2})$/);
-    if (match2) {
-      const monthIdx = months.findIndex(m => m.toLowerCase() === match2[1].toLowerCase());
-      if (monthIdx !== -1) {
-        const now = new Date();
-        let year = now.getFullYear();
-        const testDate = new Date(year, monthIdx, parseInt(match2[2]));
-        // If more than 30 days in past, use next year
-        if ((now.getTime() - testDate.getTime()) / (1000 * 60 * 60 * 24) > 30) {
-          year++;
-        }
-        date = new Date(year, monthIdx, parseInt(match2[2]));
-      }
-    }
-  }
-
-  // Try ISO format "2026-01-17"
-  if (!date) {
-    const match3 = str.match(/^(\d{4})-(\d{2})-(\d{2})$/);
-    if (match3) {
-      date = new Date(parseInt(match3[1]), parseInt(match3[2]) - 1, parseInt(match3[3]));
-    }
-  }
-
-  // Try US format "1/17/26" or "01/17/26"
-  if (!date) {
-    const match4 = str.match(/^(\d{1,2})\/(\d{1,2})\/(\d{2,4})$/);
-    if (match4) {
-      let year = parseInt(match4[3]);
-      if (year < 100) year += 2000;
-      date = new Date(year, parseInt(match4[1]) - 1, parseInt(match4[2]));
-    }
-  }
-
-  // If still no valid date, return original input
-  if (!date || isNaN(date.getTime())) return str;
-
-  // Format as "Jan 17 26"
-  const shortYear = String(date.getFullYear()).slice(-2);
-  return `${months[date.getMonth()]} ${date.getDate()} ${shortYear}`;
-};
-
 interface PositionsTableProps {
   positions: Position[];
   setPositions: React.Dispatch<React.SetStateAction<Position[]>>;

@@ -86,6 +86,7 @@ export function useChartZoom({ chartData, positions }: UseChartZoomProps): UseCh
       const startIndex = chartData.findIndex(d => d.price >= lowerBound);
       const endIndex = chartData.findIndex(d => d.price >= upperBound);
 
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setZoomRange({
         startIndex: startIndex !== -1 ? startIndex : 0,
         endIndex: endIndex !== -1 ? endIndex : chartData.length - 1

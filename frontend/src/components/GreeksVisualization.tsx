@@ -50,7 +50,7 @@ const greekConfig: Record<keyof SelectedGreeks, GreekConfig> = {
   }
 };
 
-export default function GreeksVisualization({ chartData, portfolioGreeks: _portfolioGreeks, marketData }: GreeksVisualizationProps) {
+export default function GreeksVisualization({ chartData, marketData }: GreeksVisualizationProps) {
   const [selectedGreeks, setSelectedGreeks] = useState<SelectedGreeks>({
     delta: true,
     gamma: false,

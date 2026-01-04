@@ -51,7 +51,7 @@ export default function PLChart({
   evalDaysFromNow,
   precomputedDates,
 }: PLChartProps) {
-  const [hoveredPoint, setHoveredPoint] = useState<{ x: number; y: number } | null>(null);
+  const [_hoveredPoint, _setHoveredPoint] = useState<{ x: number; y: number } | null>(null);
 
   // Calculate breakeven points
   const breakevenPoints = useMemo((): BreakevenPoint[] => {

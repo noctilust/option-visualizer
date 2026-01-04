@@ -66,7 +66,7 @@ function getDefaultExpiration(): string {
 
   // Find 3rd Friday
   const firstDay = new Date(targetYear, targetMonth, 1);
-  let firstFriday = 1 + ((5 - firstDay.getDay() + 7) % 7);
+  const firstFriday = 1 + ((5 - firstDay.getDay() + 7) % 7);
   const thirdFriday = firstFriday + 14;
 
   const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
@@ -410,6 +410,7 @@ export function useCalculation({
 
     return () => clearTimeout(timeoutId);
     // Note: evalDaysFromNow is excluded - slider changes use precomputed_dates client-side
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [positions, credit, isDebit, symbol, useTheoreticalPricing, showGreeks, arePositionsValid]);
 
   return {
