@@ -4,6 +4,7 @@ venv
 __pycache__
 *.pyc
 .env
+.env.development
 .git
 .DS_Store
 backend/static
