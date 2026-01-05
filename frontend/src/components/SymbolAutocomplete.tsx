@@ -29,6 +29,7 @@ export default function SymbolAutocomplete({
   const dropdownRef = useRef<HTMLDivElement>(null);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const listRef = useRef<HTMLUListElement>(null);
+  const [dropdownPosition, setDropdownPosition] = useState<'bottom' | 'top'>('bottom');
 
   // Sync input value with external value
   useEffect(() => {
@@ -186,6 +187,23 @@ export default function SymbolAutocomplete({
     }
   }, [highlightedIndex]);
 
+  // Calculate dropdown position based on available space
+  useEffect(() => {
+    if (isOpen && inputRef.current) {
+      const inputRect = inputRef.current.getBoundingClientRect();
+      const spaceBelow = window.innerHeight - inputRect.bottom;
+      const spaceAbove = inputRect.top;
+      const dropdownHeight = 280; // max-h-64 = 256px + some padding
+
+      // Show dropdown above if not enough space below and more space above
+      if (spaceBelow < dropdownHeight && spaceAbove > spaceBelow) {
+        setDropdownPosition('top');
+      } else {
+        setDropdownPosition('bottom');
+      }
+    }
+  }, [isOpen]);
+
   return (
     <div className="relative w-full max-w-[360px]">
       <div className="flex items-center gap-2">
@@ -230,7 +248,9 @@ export default function SymbolAutocomplete({
       {isOpen && results.length > 0 && (
         <div
           ref={dropdownRef}
-          className="absolute z-50 w-full mt-1 bg-card border border-border rounded-lg shadow-lg overflow-hidden"
+          className={`absolute z-50 w-full bg-card border border-border rounded-lg shadow-lg overflow-hidden ${
+            dropdownPosition === 'top' ? 'bottom-full mb-1' : 'top-full mt-1'
+          }`}
         >
           <ul ref={listRef} className="max-h-64 overflow-y-auto">
             {results.map((result, index) => (
@@ -267,7 +287,9 @@ export default function SymbolAutocomplete({
       {hasSearched && results.length === 0 && inputValue && !isLoading && (
         <div
           ref={dropdownRef}
-          className="absolute z-50 w-full mt-1 bg-card border border-border rounded-lg shadow-lg p-4 text-center text-muted-foreground"
+          className={`absolute z-50 w-full bg-card border border-border rounded-lg shadow-lg p-4 text-center text-muted-foreground ${
+            dropdownPosition === 'top' ? 'bottom-full mb-1' : 'top-full mt-1'
+          }`}
         >
           No US stocks or ETFs found for "{inputValue}"
         </div>

@@ -16,6 +16,12 @@ import SymbolAutocomplete from './components/SymbolAutocomplete';
 import PLChart from './components/PLChart';
 import DateSelector from './components/DateSelector';
 import { VolatilitySkew } from './components/VolatilitySkew';
+import StepProgress from './components/StepProgress';
+import { MarketDataCardSkeleton, ChartSkeleton, GreeksCardSkeleton } from './components/Skeleton';
+import HelpTooltip from './components/HelpTooltip';
+import Button from './components/Button';
+import Collapsible from './components/Collapsible';
+import StickyHeader from './components/StickyHeader';
 
 // Components - Lazy loaded (only when Greeks are shown)
 const GreeksChart = lazy(() => import('./components/GreeksChart'));
@@ -114,6 +120,7 @@ function App() {
   // Chart zoom hook
   const {
     zoomRange,
+    deferredZoomRange,
     chartContainerRef,
     handleZoomIn,
     handleZoomOut,
@@ -191,6 +198,18 @@ function App() {
 
   return (
     <div className="min-h-screen bg-background text-foreground font-sans selection:bg-primary selection:text-primary-foreground">
+      {/* Skip to main content link for accessibility */}
+      <a href="#main-content" className="skip-link">
+        Skip to main content
+      </a>
+
+      {/* Sticky header on mobile when scrolling */}
+      <StickyHeader
+        symbol={symbol}
+        currentPrice={marketData?.current_price}
+        show={!!symbol && !!marketData}
+      />
+
       {/* Toast notifications */}
       <Toaster
         position="top-right"
@@ -211,35 +230,50 @@ function App() {
           },
         }}
       />
-      <div className="max-w-5xl mx-auto px-4 py-12">
+      <div className="max-w-6xl mx-auto px-4 py-12">
         {/* Theme Toggle Button */}
         <div className="absolute top-4 right-4 md:top-6 md:right-6">
           <button
             onClick={toggleTheme}
             className="p-2.5 rounded-full bg-card border border-border hover:bg-muted transition-colors shadow-sm"
             title={isDark ? 'Switch to light mode' : 'Switch to dark mode'}
+            aria-label={isDark ? 'Switch to light mode' : 'Switch to dark mode'}
           >
             {isDark ? (
-              <Sun size={20} className="text-yellow-500" />
+              <Sun size={20} className="text-yellow-500" aria-hidden="true" />
             ) : (
-              <Moon size={20} className="text-slate-700" />
+              <Moon size={20} className="text-slate-700" aria-hidden="true" />
             )}
           </button>
         </div>
 
-        <header className="text-center mb-12">
+        <header className="text-center mb-8">
           <h1 className="text-4xl font-extrabold tracking-tight lg:text-5xl mb-4 bg-gradient-to-r from-primary to-blue-600 bg-clip-text text-transparent">
             Option Strategy Visualizer
           </h1>
-          <p className="text-muted-foreground text-lg">
+          <p className="text-muted-foreground text-lg mb-6">
             Visualize P/L, Greeks, and volatility for any option strategy.
           </p>
+
+          {/* Step Progress Indicator */}
+          <StepProgress
+            currentStep={chartData.length > 0 ? 5 : positions.length > 0 && credit ? 4 : positions.length > 0 ? 3 : marketData ? 2 : symbol ? 1 : 0}
+            totalSteps={5}
+            steps={[
+              { label: 'Symbol', completed: !!symbol && !!marketData },
+              { label: 'Positions', completed: positions.length > 0 },
+              { label: 'Verify', completed: positions.length > 0 },
+              { label: 'Amount', completed: !!credit },
+              { label: 'Analysis', completed: chartData.length > 0 },
+            ]}
+          />
         </header>
 
-        <main className="space-y-4">
+        <main id="main-content" className="space-y-6" tabIndex={-1}>
           {/* Step 1: Stock Symbol */}
           <div className="bg-card border border-border rounded-xl shadow-sm p-4 md:p-5">
-            <h2 className="text-xl font-semibold mb-4">1. Stock Symbol</h2>
+            <h2 className="text-xl font-semibold mb-1">1. Stock Symbol</h2>
+            <p className="text-sm text-muted-foreground mb-4">Enter the ticker of the underlying stock or ETF for your options strategy.</p>
             <div className="space-y-4">
               <div>
                 <label htmlFor="symbol" className="block text-sm font-medium mb-2">
@@ -253,52 +287,66 @@ function App() {
                 />
               </div>
 
-              {marketData && (
+              {/* Market Data Loading Skeleton */}
+              {loadingMarketData && symbol && (
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
+                  <MarketDataCardSkeleton />
+                  <MarketDataCardSkeleton />
+                  <MarketDataCardSkeleton />
+                  <MarketDataCardSkeleton />
+                </div>
+              )}
+
+              {marketData && !loadingMarketData && (
                 <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
                   {/* Current Price */}
-                  <div className="group relative overflow-hidden rounded-lg bg-gradient-to-br from-emerald-500/10 to-emerald-500/5 border border-emerald-500/20 px-3 py-2 transition-all duration-300 hover:border-emerald-500/40">
-                    <div className="flex items-center gap-1.5 mb-0.5">
-                      <DollarSign className="w-3 h-3 text-emerald-500" />
-                      <span className="text-xs text-muted-foreground">Current Price</span>
+                  <div className="rounded-lg bg-card border border-border px-3 py-2.5 hover:border-emerald-500/30 transition-colors">
+                    <div className="flex items-center gap-1.5 mb-1">
+                      <DollarSign className="w-3.5 h-3.5 text-emerald-500" />
+                      <span className="text-xs text-muted-foreground font-medium">Current Price</span>
                     </div>
-                    <div className="text-base font-bold text-foreground">${marketData.current_price.toFixed(2)}</div>
+                    <div className="text-lg font-semibold text-foreground">${marketData.current_price.toFixed(2)}</div>
                   </div>
 
                   {/* Implied Volatility */}
-                  <div className="group relative overflow-hidden rounded-lg bg-gradient-to-br from-blue-500/10 to-blue-500/5 border border-blue-500/20 px-3 py-2 transition-all duration-300 hover:border-blue-500/40">
-                    <div className="flex items-center gap-1.5 mb-0.5">
-                      <Activity className="w-3 h-3 text-blue-500" />
-                      <span className="text-xs text-muted-foreground">Implied Volatility</span>
+                  <div className="rounded-lg bg-card border border-border px-3 py-2.5 hover:border-blue-500/30 transition-colors">
+                    <div className="flex items-center gap-1.5 mb-1">
+                      <Activity className="w-3.5 h-3.5 text-blue-500" />
+                      <HelpTooltip term="iv">
+                        <span className="text-xs text-muted-foreground font-medium">Implied Volatility</span>
+                      </HelpTooltip>
                     </div>
-                    <div className="text-base font-bold text-foreground">{(marketData.implied_volatility * 100).toFixed(1)}%</div>
+                    <div className="text-lg font-semibold text-foreground">{(marketData.implied_volatility * 100).toFixed(1)}%</div>
                   </div>
 
                   {/* IV Rank */}
-                  <div className={`group relative overflow-hidden rounded-lg px-3 py-2 transition-all duration-300 ${
+                  <div className={`rounded-lg px-3 py-2.5 border transition-colors ${
                     marketData.iv_rank !== null && marketData.iv_rank !== undefined
                       ? marketData.iv_rank < 30
-                        ? 'bg-gradient-to-br from-green-500/10 to-green-500/5 border border-green-500/20 hover:border-green-500/40'
+                        ? 'bg-card border-emerald-500/20 hover:border-emerald-500/40'
                         : marketData.iv_rank > 70
-                          ? 'bg-gradient-to-br from-red-500/10 to-red-500/5 border border-red-500/20 hover:border-red-500/40'
-                          : 'bg-gradient-to-br from-yellow-500/10 to-yellow-500/5 border border-yellow-500/20 hover:border-yellow-500/40'
-                      : 'bg-gradient-to-br from-muted/30 to-muted/10 border border-border'
+                          ? 'bg-card border-red-500/20 hover:border-red-500/40'
+                          : 'bg-card border-yellow-500/20 hover:border-yellow-500/40'
+                      : 'bg-card border-border hover:border-border/80'
                   }`}>
-                    <div className="flex items-center gap-1.5 mb-0.5">
-                      <BarChart3 className={`w-3 h-3 ${
+                    <div className="flex items-center gap-1.5 mb-1">
+                      <BarChart3 className={`w-3.5 h-3.5 ${
                         marketData.iv_rank !== null && marketData.iv_rank !== undefined
                           ? marketData.iv_rank < 30
-                            ? 'text-green-500'
+                            ? 'text-emerald-500'
                             : marketData.iv_rank > 70
                               ? 'text-red-500'
                               : 'text-yellow-500'
                           : 'text-muted-foreground'
                       }`} />
-                      <span className="text-xs text-muted-foreground">IV Rank</span>
+                      <HelpTooltip term="iv-rank">
+                        <span className="text-xs text-muted-foreground font-medium">IV Rank</span>
+                      </HelpTooltip>
                     </div>
-                    <div className={`text-base font-bold ${
+                    <div className={`text-lg font-semibold ${
                       marketData.iv_rank !== null && marketData.iv_rank !== undefined
                         ? marketData.iv_rank < 30
-                          ? 'text-green-600 dark:text-green-400'
+                          ? 'text-emerald-600 dark:text-emerald-400'
                           : marketData.iv_rank > 70
                             ? 'text-red-600 dark:text-red-400'
                             : 'text-yellow-600 dark:text-yellow-400'
@@ -311,12 +359,14 @@ function App() {
                   </div>
 
                   {/* Risk-Free Rate */}
-                  <div className="group relative overflow-hidden rounded-lg bg-gradient-to-br from-purple-500/10 to-purple-500/5 border border-purple-500/20 px-3 py-2 transition-all duration-300 hover:border-purple-500/40">
-                    <div className="flex items-center gap-1.5 mb-0.5">
-                      <Percent className="w-3 h-3 text-purple-500" />
-                      <span className="text-xs text-muted-foreground">Risk-Free Rate</span>
+                  <div className="rounded-lg bg-card border border-border px-3 py-2.5 hover:border-purple-500/30 transition-colors">
+                    <div className="flex items-center gap-1.5 mb-1">
+                      <Percent className="w-3.5 h-3.5 text-purple-500" />
+                      <HelpTooltip term="risk-free-rate">
+                        <span className="text-xs text-muted-foreground font-medium">Risk-Free Rate</span>
+                      </HelpTooltip>
                     </div>
-                    <div className="text-base font-bold text-foreground">{(marketData.risk_free_rate * 100).toFixed(2)}%</div>
+                    <div className="text-lg font-semibold text-foreground">{(marketData.risk_free_rate * 100).toFixed(2)}%</div>
                   </div>
                 </div>
               )}
@@ -355,7 +405,8 @@ function App() {
           {/* Step 2: Add Positions */}
           {symbol && symbol.trim() !== '' && marketData && marketData.iv_rank !== null && marketData.iv_rank !== undefined ? (
             <div className="bg-card border border-border rounded-xl shadow-sm p-4 md:p-5 animate-in fade-in slide-in-from-bottom-4 duration-500">
-              <h2 className="text-xl font-semibold mb-4">2. Add Positions</h2>
+              <h2 className="text-xl font-semibold mb-1">2. Add Positions</h2>
+              <p className="text-sm text-muted-foreground mb-4">Build your strategy by adding option positions (calls, puts) or upload a screenshot.</p>
               <UploadSection
                 onFileSelect={handleFileSelect}
                 onManualEntry={handleManualEntry}
@@ -395,7 +446,25 @@ function App() {
           {positions.length > 0 && (
             <>
               <div className="bg-card border border-border rounded-xl shadow-sm p-4 md:p-5 animate-in fade-in slide-in-from-bottom-4 duration-500">
-                <h2 className="text-xl font-semibold mb-4">3. Verify Positions</h2>
+                <div className="flex justify-between items-start mb-4">
+                  <div>
+                    <h2 className="text-xl font-semibold mb-1">3. Verify Positions</h2>
+                    <p className="text-sm text-muted-foreground">Review and edit your positions before calculating P/L and Greeks.</p>
+                  </div>
+                  <label className="flex items-center gap-2 cursor-pointer bg-muted/30 px-3 py-2 rounded-lg hover:bg-muted/50 transition-colors shrink-0">
+                    <input
+                      type="checkbox"
+                      checked={showGreeks}
+                      onChange={(e) => setShowGreeks(e.target.checked)}
+                      className="w-4 h-4 rounded border-gray-300 text-primary focus:ring-primary"
+                    />
+                    <span className="text-sm flex items-center gap-1">
+                      <TrendingUp size={14} />
+                      <span className="hidden sm:inline">Show Greeks</span>
+                      <span className="sm:hidden">Greeks</span>
+                    </span>
+                  </label>
+                </div>
                 <PositionsTable
                   positions={positions}
                   setPositions={setPositions}
@@ -408,40 +477,57 @@ function App() {
 
               {/* Volatility Skew - Market context for selected expiration */}
               {symbol && marketData && primaryExpiration && (
-                <div className="bg-card border border-border rounded-xl shadow-sm p-4 md:p-5 animate-in fade-in slide-in-from-bottom-4 duration-500 delay-100">
-                  <VolatilitySkew
-                    symbol={symbol}
-                    marketData={marketData}
-                    selectedExpiration={primaryExpiration}
-                    isDark={isDark}
-                  />
+                <div className="animate-in fade-in slide-in-from-bottom-4 duration-500 delay-100">
+                  <div className="md:hidden">
+                    <Collapsible
+                      title="Volatility Skew"
+                      icon={<TrendingUp className="w-5 h-5 text-primary" />}
+                      defaultOpen={false}
+                      className="bg-card border border-border rounded-xl shadow-sm p-4"
+                    >
+                      <VolatilitySkew
+                        symbol={symbol}
+                        marketData={marketData}
+                        selectedExpiration={primaryExpiration}
+                        isDark={isDark}
+                      />
+                    </Collapsible>
+                  </div>
+                  <div className="hidden md:block">
+                    <VolatilitySkew
+                      symbol={symbol}
+                      marketData={marketData}
+                      selectedExpiration={primaryExpiration}
+                      isDark={isDark}
+                    />
+                  </div>
                 </div>
               )}
 
               <div className="bg-card border border-border rounded-xl shadow-sm p-4 md:p-5 animate-in fade-in slide-in-from-bottom-4 duration-500 delay-150">
-                <h2 className="text-xl font-semibold mb-4">4. Enter Amount</h2>
+                <h2 className="text-xl font-semibold mb-1">4. Enter Amount</h2>
+                <p className="text-sm text-muted-foreground mb-4">Enter the credit received or debit paid to open this position.</p>
                 <InputSection credit={credit} setCredit={setCredit} isDebit={isDebit} setIsDebit={setIsDebit} />
               </div>
             </>
           )}
 
-          {/* Loading indicator - granular states */}
+          {/* Loading indicator - skeleton chart */}
           {(loadingStates.chart || loadingStates.greeks) && positions.length > 0 && credit && (
             <div className="bg-card border border-border rounded-xl shadow-sm p-4 md:p-5 animate-in fade-in duration-300">
-              <div className="flex items-center justify-center gap-3">
-                <Loader2 className="h-5 w-5 animate-spin text-primary" />
-                <span className="text-muted-foreground">
-                  {loadingStates.chart && loadingStates.greeks && 'Calculating P/L and Greeks...'}
-                  {loadingStates.chart && !loadingStates.greeks && 'Calculating P/L...'}
-                  {!loadingStates.chart && loadingStates.greeks && 'Loading Greeks data...'}
-                </span>
+              <div className="flex justify-between items-center mb-4">
+                <h2 className="text-xl font-semibold mb-1">5. P/L Analysis</h2>
+                <p className="text-sm text-muted-foreground mb-4">View profit/loss projections, Greeks, and volatility analysis for your strategy.</p>
+                <div className="flex items-center gap-3">
+                  <Loader2 className="h-5 w-5 animate-spin text-primary" />
+                  <span className="text-sm text-muted-foreground">
+                    {loadingStates.chart && loadingStates.greeks && 'Calculating P/L and Greeks...'}
+                    {loadingStates.chart && !loadingStates.greeks && 'Calculating P/L...'}
+                    {!loadingStates.chart && loadingStates.greeks && 'Loading Greeks data...'}
+                  </span>
+                </div>
               </div>
-              <div className="mt-3 h-1.5 w-full bg-muted rounded-full overflow-hidden">
-                <div
-                  className="h-full bg-primary rounded-full animate-pulse transition-all"
-                  style={{ width: loadingStates.chart ? '60%' : '90%' }}
-                />
-              </div>
+              <ChartSkeleton />
             </div>
           )}
 
@@ -452,35 +538,24 @@ function App() {
               className="bg-card border border-border rounded-xl shadow-sm p-4 md:p-5 text-foreground animate-in fade-in slide-in-from-bottom-4 duration-500"
             >
               <div className="flex justify-between items-center mb-4">
-                <h2 className="text-xl font-semibold">5. P/L Analysis</h2>
-                <div className="flex items-center gap-4">
-                  <label className="flex items-center gap-2 cursor-pointer">
-                    <input
-                      type="checkbox"
-                      checked={showGreeks}
-                      onChange={(e) => setShowGreeks(e.target.checked)}
-                      className="w-4 h-4 rounded border-gray-300 text-primary focus:ring-primary"
-                    />
-                    <span className="text-sm flex items-center gap-1">
-                      <TrendingUp size={14} />
-                      Show Greeks
-                    </span>
-                  </label>
-                  <button
-                    onClick={handleStartOver}
-                    className="flex items-center justify-center gap-1.5 min-w-[140px] px-4 py-2 text-sm font-medium text-primary-foreground bg-primary rounded-lg hover:bg-primary/90 transition-all shadow-sm hover:shadow-md"
-                  >
-                    <RotateCcw size={14} />
-                    Start Over
-                  </button>
+                <div>
+                  <h2 className="text-xl font-semibold mb-1">5. P/L Analysis</h2>
+                  <p className="text-sm text-muted-foreground">View profit/loss projections, Greeks, and volatility analysis for your strategy.</p>
                 </div>
+                <Button
+                  onClick={handleStartOver}
+                  leftIcon={<RotateCcw size={14} />}
+                  className="min-w-[140px]"
+                >
+                  Start Over
+                </Button>
               </div>
 
               <PLChart
                 chartData={chartData}
                 positions={positions}
                 marketData={marketData}
-                zoomRange={zoomRange}
+                zoomRange={deferredZoomRange}
                 xAxisTicks={xAxisTicks}
                 isDark={isDark}
                 chartContainerRef={chartContainerRef}
@@ -509,14 +584,29 @@ function App() {
               {/* Greeks Chart Section */}
               {showGreeks && portfolioGreeks && (
                 <div className="mt-8 pt-8 border-t">
-                  <Suspense fallback={
-                    <div className="flex items-center justify-center gap-2 py-8">
-                      <Loader2 className="h-5 w-5 animate-spin text-primary" />
-                      <span className="text-muted-foreground">Loading Greeks Chart...</span>
-                    </div>
-                  }>
-                    <GreeksChart portfolioGreeks={portfolioGreeks} />
-                  </Suspense>
+                  <Collapsible
+                    title="Position Greeks"
+                    icon={<TrendingUp className="w-5 h-5 text-primary" />}
+                    mobileOnly
+                    defaultOpen
+                  >
+                    <Suspense fallback={
+                      <div className="space-y-4">
+                        <div className="flex items-center gap-2">
+                          <Loader2 className="h-4 w-4 animate-spin text-primary" />
+                          <span className="text-sm text-muted-foreground">Loading Greeks...</span>
+                        </div>
+                        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                          <GreeksCardSkeleton />
+                          <GreeksCardSkeleton />
+                          <GreeksCardSkeleton />
+                          <GreeksCardSkeleton />
+                        </div>
+                      </div>
+                    }>
+                      <GreeksChart portfolioGreeks={portfolioGreeks} />
+                    </Suspense>
+                  </Collapsible>
                 </div>
               )}
 

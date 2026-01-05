@@ -1,4 +1,5 @@
 import { Calendar } from 'lucide-react';
+import Button from './Button';
 
 interface DateSelectorProps {
   evalDaysFromNow: number | null;
@@ -84,21 +85,29 @@ export default function DateSelector({
         </div>
 
         {/* Preset buttons */}
-        <div className="flex gap-1 shrink-0">
-          {presets.map((preset) => (
-            <button
-              key={preset.label}
-              onClick={() => setEvalDaysFromNow(preset.days)}
-              className={`px-2 py-1 text-xs font-medium rounded transition-colors ${
-                (preset.days === evalDaysFromNow) ||
-                (preset.days === null && evalDaysFromNow === null)
-                  ? 'bg-primary text-primary-foreground'
-                  : 'bg-muted hover:bg-muted/80 text-muted-foreground hover:text-foreground'
-              }`}
-            >
-              {preset.label}
-            </button>
-          ))}
+        <div className="flex gap-1 shrink-0" role="group" aria-label="Date presets">
+          {presets.map((preset) => {
+            const isSelected = (preset.days === evalDaysFromNow) ||
+              (preset.days === null && evalDaysFromNow === null);
+            const ariaLabel = preset.days === null
+              ? 'Show P/L at expiration'
+              : preset.days === 0
+                ? 'Show P/L today'
+                : `Show P/L in ${preset.days} days`;
+
+            return (
+              <Button
+                key={preset.label}
+                variant={isSelected ? 'primary' : 'secondary'}
+                size="sm"
+                onClick={() => setEvalDaysFromNow(preset.days)}
+                aria-pressed={isSelected}
+                aria-label={ariaLabel}
+              >
+                {preset.label}
+              </Button>
+            );
+          })}
         </div>
       </div>
     </div>

@@ -1,5 +1,7 @@
+import { memo } from 'react';
 import { TrendingUp, TrendingDown, Minus, ArrowUpRight, ArrowDownRight } from 'lucide-react';
 import type { PortfolioGreeks } from '../types';
+import HelpTooltip from './HelpTooltip';
 
 interface GreeksChartProps {
   portfolioGreeks: PortfolioGreeks | null;
@@ -34,7 +36,7 @@ const greekInfo: Record<keyof Omit<PortfolioGreeks, 'rho'>, GreekInfo> = {
   },
 };
 
-export default function GreeksChart({ portfolioGreeks }: GreeksChartProps) {
+function GreeksChart({ portfolioGreeks }: GreeksChartProps) {
   if (!portfolioGreeks) {
     return null;
   }
@@ -49,9 +51,12 @@ export default function GreeksChart({ portfolioGreeks }: GreeksChartProps) {
       case 'gamma':
         return value.toFixed(4);
       case 'theta':
-        return `${value > 0 ? '+' : ''}${value.toFixed(2)}`;
+        // Theta is monetary ($/day), show with $ prefix
+        const sign = value > 0 ? '+' : value < 0 ? '-' : '';
+        return `${sign}$${Math.abs(value).toFixed(2)}`;
       case 'vega':
-        return value.toFixed(3);
+        // Vega is monetary ($ per 1% IV), show with $ prefix
+        return `$${value.toFixed(2)}`;
       default:
         return value.toFixed(3);
     }
@@ -132,9 +137,11 @@ export default function GreeksChart({ portfolioGreeks }: GreeksChartProps) {
 
               <div className="flex items-start justify-between mb-2">
                 <div className="flex flex-col gap-1">
-                  <h4 className="text-sm font-medium uppercase" style={{ color: info.color }}>
-                    {info.label}
-                  </h4>
+                  <HelpTooltip term={key}>
+                    <h4 className="text-sm font-medium uppercase" style={{ color: info.color }}>
+                      {info.label}
+                    </h4>
+                  </HelpTooltip>
                   <span className="text-xs px-2 py-0.5 rounded-full bg-muted/50 text-muted-foreground font-semibold inline-block w-fit">
                     {magnitude}
                   </span>
@@ -266,3 +273,16 @@ export default function GreeksChart({ portfolioGreeks }: GreeksChartProps) {
     </div>
   );
 }
+
+// Memoize to prevent re-renders when parent state changes but Greeks haven't
+export default memo(GreeksChart, (prevProps, nextProps) => {
+  if (!prevProps.portfolioGreeks && !nextProps.portfolioGreeks) return true;
+  if (!prevProps.portfolioGreeks || !nextProps.portfolioGreeks) return false;
+
+  return (
+    prevProps.portfolioGreeks.delta === nextProps.portfolioGreeks.delta &&
+    prevProps.portfolioGreeks.gamma === nextProps.portfolioGreeks.gamma &&
+    prevProps.portfolioGreeks.theta === nextProps.portfolioGreeks.theta &&
+    prevProps.portfolioGreeks.vega === nextProps.portfolioGreeks.vega
+  );
+});

@@ -1,8 +1,9 @@
-import { useRef, type ChangeEvent, type FocusEvent, type MouseEvent } from 'react';
+import { useRef, useCallback, memo, type ChangeEvent, type FocusEvent, type MouseEvent } from 'react';
 import { Trash2, Plus } from 'lucide-react';
 import type { Position, PositionWithGreeks, PortfolioGreeks } from '../types';
 import ExpirationDropdown from './ExpirationDropdown';
 import { generateId, DEFAULT_EXPIRATION } from '../hooks/useCalculation';
+import Button from './Button';
 
 interface PositionsTableProps {
   positions: Position[];
@@ -23,10 +24,6 @@ export default function PositionsTable({
 }: PositionsTableProps) {
   const ignoreMouseUp = useRef(false);
 
-  const handleRemove = (id: string) => {
-    const newPositions = positions.filter((pos) => pos.id !== id);
-    setPositions(newPositions);
-  };
 
   const handleAdd = () => {
     const lastPosition = positions[positions.length - 1];
@@ -41,11 +38,17 @@ export default function PositionsTable({
     setPositions([...positions, newPosition]);
   };
 
-  const handleChange = (index: number, field: keyof Position, value: string | number) => {
-    const newPositions = [...positions];
-    newPositions[index] = { ...newPositions[index], [field]: value };
-    setPositions(newPositions);
-  };
+  const handleChange = useCallback((index: number, field: keyof Position, value: string | number) => {
+    setPositions(prev => {
+      const newPositions = [...prev];
+      newPositions[index] = { ...newPositions[index], [field]: value };
+      return newPositions;
+    });
+  }, [setPositions]);
+
+  const handleRemoveCallback = useCallback((id: string) => {
+    setPositions(prev => prev.filter((pos) => pos.id !== id));
+  }, [setPositions]);
 
   // Get Greeks for a specific position by index
   const getGreeksForPosition = (index: number): PortfolioGreeks | null => {
@@ -101,17 +104,20 @@ export default function PositionsTable({
             )}
           </div>
         </div>
-        <button
+        <Button
           onClick={handleAdd}
-          className="flex items-center justify-center gap-1.5 min-w-[140px] px-4 py-2 text-sm font-medium text-primary-foreground bg-primary rounded-lg hover:bg-primary/90 transition-all shadow-sm hover:shadow-md"
+          leftIcon={<Plus size={14} />}
+          className="min-w-[140px]"
         >
-          <Plus size={14} />
           Add Position
-        </button>
+        </Button>
       </div>
 
-      <div className="overflow-x-auto border rounded-lg shadow-sm">
-        <table className="w-full text-sm text-left table-auto">
+      <div className="relative">
+        {/* Mobile scroll indicator */}
+        <div className="md:hidden absolute right-0 top-0 bottom-0 w-8 pointer-events-none bg-gradient-to-l from-card to-transparent z-10 rounded-r-lg" />
+        <div className="overflow-x-auto border rounded-lg shadow-sm scrollbar-thin">
+          <table className="w-full text-sm text-left table-auto min-w-[640px]">
           <thead className="bg-muted/50 text-muted-foreground uppercase text-xs">
             <tr>
               <th className={headerPadding}>Qty</th>
@@ -256,10 +262,11 @@ export default function PositionsTable({
                   )}
                   <td className={cellPadding}>
                     <button
-                      onClick={() => handleRemove(pos.id)}
+                      onClick={() => handleRemoveCallback(pos.id)}
                       className="text-destructive hover:text-destructive/80 transition-colors"
+                      aria-label={`Remove position: ${pos.qty > 0 ? '+' : ''}${pos.qty} ${pos.type === 'C' ? 'Call' : 'Put'} at $${pos.strike}`}
                     >
-                      <Trash2 className="w-4 h-4" />
+                      <Trash2 className="w-4 h-4" aria-hidden="true" />
                     </button>
                   </td>
                 </tr>
@@ -267,6 +274,11 @@ export default function PositionsTable({
             })}
           </tbody>
         </table>
+        </div>
+        {/* Scroll hint for mobile */}
+        <p className="md:hidden text-xs text-muted-foreground mt-2 text-center">
+          ← Swipe to see more →
+        </p>
       </div>
     </div>
   );

@@ -53,9 +53,9 @@ const greekConfig: Record<keyof SelectedGreeks, GreekConfig> = {
 export default function GreeksVisualization({ chartData, marketData }: GreeksVisualizationProps) {
   const [selectedGreeks, setSelectedGreeks] = useState<SelectedGreeks>({
     delta: true,
-    gamma: false,
-    theta: false,
-    vega: false
+    gamma: true,
+    theta: true,
+    vega: true
   });
 
   if (!chartData || chartData.length === 0) {

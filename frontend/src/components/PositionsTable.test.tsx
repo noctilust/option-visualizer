@@ -69,7 +69,9 @@ describe('PositionsTable', () => {
     fireEvent.click(deleteButtons[0]);
 
     expect(setPositions).toHaveBeenCalledTimes(1);
-    const newPositions = setPositions.mock.calls[0][0] as Position[];
+    // handleChange uses functional update, so we need to call the updater function
+    const updater = setPositions.mock.calls[0][0];
+    const newPositions = updater(mockPositions) as Position[];
     expect(newPositions.length).toBe(1);
     expect(newPositions[0].id).toBe('pos_2');
   });
@@ -82,7 +84,9 @@ describe('PositionsTable', () => {
     fireEvent.change(qtyInput, { target: { value: '-2' } });
 
     expect(setPositions).toHaveBeenCalledTimes(1);
-    const newPositions = setPositions.mock.calls[0][0] as Position[];
+    // handleChange uses functional update, so we need to call the updater function
+    const updater = setPositions.mock.calls[0][0];
+    const newPositions = updater(mockPositions) as Position[];
     expect(newPositions[0].qty).toBe('-2');
   });
 

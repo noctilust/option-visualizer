@@ -97,7 +97,7 @@ export function useCalculation({
 
   // Black-Scholes / Greeks state
   const [useTheoreticalPricing, setUseTheoreticalPricing] = useState(true);
-  const [showGreeks, setShowGreeks] = useState(false);
+  const [showGreeks, setShowGreeks] = useState(true);
   const [greeksData, setGreeksData] = useState<PositionWithGreeks[] | null>(null);
   const [portfolioGreeks, setPortfolioGreeks] = useState<PortfolioGreeks | null>(null);
 

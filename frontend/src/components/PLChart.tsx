@@ -11,7 +11,7 @@ import {
   ReferenceLine,
   ReferenceDot,
 } from 'recharts';
-import { Plus, Minus, RotateCcw } from 'lucide-react';
+import { Plus, Minus, RotateCcw, TrendingUp, TrendingDown, Circle } from 'lucide-react';
 import type { ChartDataPoint, Position, MarketData, ZoomRange, BreakevenPoint } from '../types';
 
 interface PLChartProps {
@@ -198,18 +198,95 @@ export default function PLChart({
     return map;
   }, [positions]);
 
+  // Calculate max profit/loss for summary
+  const { maxProfit, maxLoss } = useMemo(() => {
+    if (!chartData.length) return { maxProfit: 0, maxLoss: 0 };
+    const profits = chartData.map(d => d.pl);
+    return {
+      maxProfit: Math.max(...profits),
+      maxLoss: Math.min(...profits),
+    };
+  }, [chartData]);
+
   return (
     <>
+      {/* Chart Summary - Responsive layout */}
+      <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3 mb-4">
+        {/* Max Profit/Loss */}
+        <div className="flex items-center gap-4 md:gap-6">
+          <div className="flex items-center gap-1.5 md:gap-2">
+            <TrendingUp className="w-4 h-4 text-emerald-500" aria-hidden="true" />
+            <span className="text-xs md:text-sm text-muted-foreground">Max Profit:</span>
+            <span className={`text-sm md:text-base font-semibold ${maxProfit > 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-muted-foreground'}`}>
+              {maxProfit === Infinity ? 'Unlimited' : `$${Math.round(maxProfit).toLocaleString()}`}
+            </span>
+          </div>
+          <div className="flex items-center gap-1.5 md:gap-2">
+            <TrendingDown className="w-4 h-4 text-red-500" aria-hidden="true" />
+            <span className="text-xs md:text-sm text-muted-foreground">Max Loss:</span>
+            <span className={`text-sm md:text-base font-semibold ${maxLoss < 0 ? 'text-red-600 dark:text-red-400' : 'text-muted-foreground'}`}>
+              {maxLoss === -Infinity ? 'Unlimited' : `$${Math.round(maxLoss).toLocaleString()}`}
+            </span>
+          </div>
+        </div>
+
+        {/* Legend - Hidden on mobile, shown on md+ */}
+        <div className="hidden md:flex flex-wrap items-center gap-4 text-xs">
+          <div className="flex items-center gap-1.5">
+            <div className="w-4 h-0.5 bg-emerald-500 rounded" />
+            <span className="text-muted-foreground">Profit Zone</span>
+          </div>
+          <div className="flex items-center gap-1.5">
+            <div className="w-4 h-0.5 bg-red-500 rounded" />
+            <span className="text-muted-foreground">Loss Zone</span>
+          </div>
+          {hasPLAtDate && (
+            <div className="flex items-center gap-1.5">
+              <div className="w-4 h-0.5 bg-blue-500 rounded" style={{ backgroundImage: 'repeating-linear-gradient(90deg, currentColor, currentColor 3px, transparent 3px, transparent 6px)' }} />
+              <span className="text-muted-foreground">P/L Today</span>
+            </div>
+          )}
+          <div className="flex items-center gap-1.5">
+            <Circle className="w-3 h-3 fill-amber-500 text-amber-500" aria-hidden="true" />
+            <span className="text-muted-foreground">Breakeven</span>
+          </div>
+          <div className="flex items-center gap-1.5">
+            <div className="w-3 h-3 rounded-full bg-emerald-500 border-2 border-white dark:border-gray-800" />
+            <span className="text-muted-foreground">Current Price</span>
+          </div>
+        </div>
+      </div>
+
+      {/* Compact legend for mobile */}
+      <div className="flex md:hidden flex-wrap items-center justify-center gap-3 mb-3 text-[10px]">
+        <div className="flex items-center gap-1">
+          <div className="w-3 h-0.5 bg-emerald-500 rounded" />
+          <span className="text-muted-foreground">Profit</span>
+        </div>
+        <div className="flex items-center gap-1">
+          <div className="w-3 h-0.5 bg-red-500 rounded" />
+          <span className="text-muted-foreground">Loss</span>
+        </div>
+        <div className="flex items-center gap-1">
+          <Circle className="w-2.5 h-2.5 fill-amber-500 text-amber-500" aria-hidden="true" />
+          <span className="text-muted-foreground">BE</span>
+        </div>
+        <div className="flex items-center gap-1">
+          <div className="w-2.5 h-2.5 rounded-full bg-emerald-500" />
+          <span className="text-muted-foreground">Current</span>
+        </div>
+      </div>
+
       <div
         ref={chartContainerRef}
-        className="h-[420px] w-full select-none"
+        className="h-[300px] md:h-[420px] w-full select-none touch-pan-y"
         style={{ cursor: 'grab' }}
         onMouseDown={onMouseDown}
         onMouseMove={onMouseMove}
         onMouseUp={onMouseUp}
         onMouseLeave={onMouseLeave}
       >
-        <ResponsiveContainer width="100%" height={420}>
+        <ResponsiveContainer width="100%" height="100%">
           <ComposedChart
             data={visibleChartData}
             margin={{ top: 20, right: 0, left: 0, bottom: 10 }}
@@ -221,7 +298,7 @@ export default function PLChart({
             }}
             onMouseLeave={() => setHoveredPoint(null)}
           >
-            <CartesianGrid stroke="#525252" vertical={false} />
+            <CartesianGrid stroke={isDark ? '#525252' : '#e5e7eb'} vertical={false} />
 
             
             {/* Vertical grid lines at even prices with lighter gray */}
@@ -229,7 +306,7 @@ export default function PLChart({
               <ReferenceLine
                 key={`grid-${index}`}
                 x={tick}
-                stroke="#9ca3af"
+                stroke={isDark ? '#6b7280' : '#9ca3af'}
                 strokeDasharray="3 3"
                 strokeOpacity={0.4}
               />
@@ -240,13 +317,13 @@ export default function PLChart({
               domain={['dataMin', 'dataMax']}
               ticks={xAxisTicks}
               allowDecimals={false}
-              stroke="#666"
+              stroke={isDark ? '#6b7280' : '#9ca3af'}
               tick={false}
-              axisLine={{ stroke: '#525252' }}
-              tickLine={{ stroke: '#525252' }}
+              axisLine={{ stroke: isDark ? '#525252' : '#d1d5db' }}
+              tickLine={{ stroke: isDark ? '#525252' : '#d1d5db' }}
             />
             <YAxis
-              stroke="#666"
+              stroke={isDark ? '#6b7280' : '#9ca3af'}
               tick={false}
               width={0}
               domain={yAxisDomain}
@@ -274,9 +351,9 @@ export default function PLChart({
                   const dateLabel = getDateLabel();
 
                   return (
-                    <div className="bg-[#262626] border border-[#404040] text-[#e5e5e5] rounded-lg p-3 shadow-lg">
+                    <div className="bg-popover border border-border text-popover-foreground rounded-lg p-3 shadow-lg">
                       <div className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1 text-sm">
-                        <span className="text-gray-400">Price:</span>
+                        <span className="text-muted-foreground">Price:</span>
                         <span className="text-right font-medium">
                           ${Number.isInteger(label) ? label : (label as number).toFixed(2)}
                         </span>
@@ -284,32 +361,32 @@ export default function PLChart({
                         {/* Show P/L at selected date if available */}
                         {plAtDateValue !== undefined && dateLabel && (
                           <>
-                            <span className="text-blue-400">P/L ({dateLabel}):</span>
-                            <span className={`text-right font-medium ${plAtDateValue >= 0 ? 'text-blue-400' : 'text-orange-400'}`}>
+                            <span className="text-blue-500 dark:text-blue-400">P/L ({dateLabel}):</span>
+                            <span className={`text-right font-medium ${plAtDateValue >= 0 ? 'text-blue-500 dark:text-blue-400' : 'text-orange-500 dark:text-orange-400'}`}>
                               ${Math.round(plAtDateValue)}
                             </span>
                           </>
                         )}
 
                         {/* Always show P/L at expiration */}
-                        <span className="text-gray-400">{plAtDateValue !== undefined ? 'P/L (Exp):' : 'P/L:'}</span>
-                        <span className={`text-right font-medium ${plValue >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
+                        <span className="text-muted-foreground">{plAtDateValue !== undefined ? 'P/L (Exp):' : 'P/L:'}</span>
+                        <span className={`text-right font-medium ${plValue >= 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-red-600 dark:text-red-400'}`}>
                           ${plValue}
                         </span>
 
                         {isBreakeven && (
-                          <span className="col-span-2 text-center text-emerald-400 font-semibold mt-1 pt-1 border-t border-[#404040]">
+                          <span className="col-span-2 text-center text-amber-600 dark:text-amber-400 font-semibold mt-1 pt-1 border-t border-border">
                             Breakeven
                           </span>
                         )}
                         {matchingPositions.length > 0 && (
-                          <div className="col-span-2 mt-1 pt-1 border-t border-[#404040]">
+                          <div className="col-span-2 mt-1 pt-1 border-t border-border">
                             {matchingPositions.map((pos, idx) => (
                               <div key={idx} className="flex items-center justify-between gap-3 mt-1">
-                                <span className={`font-semibold ${pos.qty > 0 ? 'text-emerald-400' : 'text-red-400'}`}>
+                                <span className={`font-semibold ${pos.qty > 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-red-600 dark:text-red-400'}`}>
                                   {pos.qty > 0 ? '+' : ''}{pos.qty} {pos.type === 'C' ? 'Call' : 'Put'}
                                 </span>
-                                <span className="text-gray-400 text-xs">
+                                <span className="text-muted-foreground text-xs">
                                   ${pos.strike} {pos.expiration}
                                 </span>
                               </div>
@@ -323,7 +400,7 @@ export default function PLChart({
                 return null;
               }}
             />
-            <ReferenceLine y={0} stroke="#ffffff" strokeWidth={1} />
+            <ReferenceLine y={0} stroke={isDark ? '#ffffff' : '#1f2937'} strokeWidth={1} />
             {/* Price labels just above the zero line */}
             {xAxisTicks.map((tick, index) => (
               <ReferenceDot
@@ -530,27 +607,31 @@ export default function PLChart({
         </ResponsiveContainer>
       </div>
 
-      <div className="flex justify-center gap-2 -mt-8 relative z-10">
+      {/* Zoom controls - Touch-friendly on mobile */}
+      <div className="flex justify-center gap-2 mt-2 md:-mt-8 relative z-10">
         <button
           onClick={onZoomIn}
-          className="p-2 bg-muted hover:bg-muted/80 rounded-md transition-colors text-muted-foreground"
+          className="p-2.5 md:p-2 bg-muted hover:bg-muted/80 active:bg-muted/70 rounded-lg md:rounded-md transition-colors text-muted-foreground touch-manipulation"
           title="Zoom In"
+          aria-label="Zoom in on chart"
         >
-          <Plus size={18} />
+          <Plus size={20} className="md:w-[18px] md:h-[18px]" aria-hidden="true" />
         </button>
         <button
           onClick={onZoomOut}
-          className="p-2 bg-muted hover:bg-muted/80 rounded-md transition-colors text-muted-foreground"
+          className="p-2.5 md:p-2 bg-muted hover:bg-muted/80 active:bg-muted/70 rounded-lg md:rounded-md transition-colors text-muted-foreground touch-manipulation"
           title="Zoom Out"
+          aria-label="Zoom out of chart"
         >
-          <Minus size={18} />
+          <Minus size={20} className="md:w-[18px] md:h-[18px]" aria-hidden="true" />
         </button>
         <button
           onClick={onResetZoom}
-          className="p-2 bg-muted hover:bg-muted/80 rounded-md transition-colors text-muted-foreground"
+          className="p-2.5 md:p-2 bg-muted hover:bg-muted/80 active:bg-muted/70 rounded-lg md:rounded-md transition-colors text-muted-foreground touch-manipulation"
           title="Reset Zoom"
+          aria-label="Reset chart zoom"
         >
-          <RotateCcw size={18} />
+          <RotateCcw size={20} className="md:w-[18px] md:h-[18px]" aria-hidden="true" />
         </button>
       </div>
     </>

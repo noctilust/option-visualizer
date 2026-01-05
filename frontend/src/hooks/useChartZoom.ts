@@ -1,4 +1,4 @@
-import { useState, useRef, useCallback, useEffect, useMemo, type RefObject } from 'react';
+import { useState, useRef, useCallback, useEffect, useMemo, useDeferredValue, type RefObject } from 'react';
 import type { ZoomRange, ChartDataPoint, Position } from '../types';
 
 interface UseChartZoomProps {
@@ -8,6 +8,7 @@ interface UseChartZoomProps {
 
 interface UseChartZoomReturn {
   zoomRange: ZoomRange;
+  deferredZoomRange: ZoomRange; // Deferred version for smoother rendering
   setZoomRange: React.Dispatch<React.SetStateAction<ZoomRange>>;
   chartContainerRef: RefObject<HTMLDivElement | null>;
   handleZoomIn: () => void;
@@ -22,6 +23,9 @@ interface UseChartZoomReturn {
 
 export function useChartZoom({ chartData, positions }: UseChartZoomProps): UseChartZoomReturn {
   const [zoomRange, setZoomRange] = useState<ZoomRange>({ startIndex: 0, endIndex: 0 });
+
+  // Deferred zoom range for smoother rendering during rapid updates (dragging/zooming)
+  const deferredZoomRange = useDeferredValue(zoomRange);
 
   // Drag-to-pan state
   const chartContainerRef = useRef<HTMLDivElement | null>(null);
@@ -288,6 +292,7 @@ export function useChartZoom({ chartData, positions }: UseChartZoomProps): UseCh
 
   return {
     zoomRange,
+    deferredZoomRange,
     setZoomRange,
     chartContainerRef,
     handleZoomIn,
