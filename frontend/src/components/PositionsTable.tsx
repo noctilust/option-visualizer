@@ -1,4 +1,4 @@
-import { useRef, useCallback, memo, type ChangeEvent, type FocusEvent, type MouseEvent } from 'react';
+import { useRef, useCallback, type ChangeEvent, type FocusEvent, type MouseEvent } from 'react';
 import { Trash2, Plus } from 'lucide-react';
 import type { Position, PositionWithGreeks, PortfolioGreeks } from '../types';
 import ExpirationDropdown from './ExpirationDropdown';

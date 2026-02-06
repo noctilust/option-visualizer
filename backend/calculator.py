@@ -18,6 +18,28 @@ from tastytrade_client import get_tastytrade_client
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+# Index symbols that trade European-style options
+INDEX_SYMBOLS = {'SPX', 'NDX', 'RUT', 'VIX', 'DJX', 'XSP', 'XND'}
+
+def get_option_style(position_style: Optional[str], symbol: Optional[str]) -> str:
+    """
+    Determine option style based on position style and underlying symbol.
+
+    Index options (SPX, NDX, etc.) are European-style. Individual stocks
+    default to American-style unless explicitly set.
+
+    Args:
+        position_style: Style from position data ('American' or 'European')
+        symbol: Underlying symbol (e.g., 'SPX', 'AAPL')
+
+    Returns:
+        'European' or 'American'
+    """
+    # Auto-detect index options as European
+    if symbol and symbol.upper() in INDEX_SYMBOLS:
+        return 'European'
+    return position_style or 'American'
+
 
 def get_optimal_binomial_steps(days_to_expiration: int) -> int:
     """
@@ -739,11 +761,13 @@ def calculate_pl(
         risk_free_rate = market_data['risk_free_rate']
         default_dividend_yield = market_data.get('dividend_yield', 0.0)
 
+        underlying_symbol = market_data.get('symbol') if market_data else None
+
         for idx, pos in enumerate(positions):
             dte = calculate_days_to_expiration(pos['expiration'], current_date)
             iv = position_ivs.get(idx, default_iv)  # Use pre-computed per-strike IV
             dividend_yield = pos.get('dividend_yield') or default_dividend_yield
-            option_style = pos.get('style', 'American')
+            option_style = get_option_style(pos.get('style'), underlying_symbol)
 
             # Use API-fetched Greeks if available, otherwise calculate locally
             if idx in position_greeks_from_api:
@@ -826,6 +850,8 @@ def calculate_pl(
         risk_free_rate = market_data['risk_free_rate']
         default_dividend_yield = market_data.get('dividend_yield', 0.0)
 
+        underlying_symbol = market_data.get('symbol') if market_data else None
+
         for idx, pos in enumerate(positions):
             qty = pos['qty']
             strike = pos['strike']
@@ -834,7 +860,7 @@ def calculate_pl(
             dte = calculate_days_to_expiration(pos['expiration'], current_date)
             iv = position_ivs.get(idx, default_iv)  # Use pre-computed per-strike IV
             dividend_yield = pos.get('dividend_yield') or default_dividend_yield
-            option_style = pos.get('style', 'American')
+            option_style = get_option_style(pos.get('style'), underlying_symbol)
 
             # Calculate theoretical value
             theoretical_value = calculate_black_scholes_price(
@@ -864,6 +890,7 @@ def calculate_pl(
         total_pl = float(credit)
         risk_free_rate = market_data['risk_free_rate']
         default_dividend_yield = market_data.get('dividend_yield', 0.0)
+        underlying_symbol = market_data.get('symbol')
 
         for idx, pos in enumerate(positions):
             qty = pos['qty']
@@ -877,7 +904,7 @@ def calculate_pl(
 
             iv = position_ivs.get(idx, default_iv)  # Use pre-computed per-strike IV
             dividend_yield = pos.get('dividend_yield') or default_dividend_yield
-            option_style = pos.get('style', 'American')
+            option_style = get_option_style(pos.get('style'), underlying_symbol)
 
             # Calculate option value at the future date
             if adjusted_dte <= 0:
@@ -915,11 +942,13 @@ def calculate_pl(
             'rho': 0.0
         }
 
+        underlying_symbol = market_data.get('symbol') if market_data else None
+
         for idx, pos in enumerate(positions):
             dte = calculate_days_to_expiration(pos['expiration'], current_date)
             iv = position_ivs.get(idx, default_iv)  # Use pre-computed per-strike IV
             dividend_yield = pos.get('dividend_yield') or default_dividend_yield
-            option_style = pos.get('style', 'American')
+            option_style = get_option_style(pos.get('style'), underlying_symbol)
 
             # Calculate Greeks at this stock price
             greeks = calculate_option_greeks(

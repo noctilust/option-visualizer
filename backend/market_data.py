@@ -87,13 +87,18 @@ class MarketDataFetcher:
         Raises:
             ValueError: If symbol is invalid or data unavailable
         """
-        cache_key = f"price_{symbol}"
+        # Handle index symbols for Yahoo Finance
+        yahoo_symbol = symbol
+        if symbol.upper() in ['SPX', 'NDX', 'RUT', 'VIX', 'DJX', 'XSP', 'XND']:
+            yahoo_symbol = f"^{symbol.upper()}"
+
+        cache_key = f"price_{yahoo_symbol}"
         cached_price = self._get_from_cache(cache_key)
         if cached_price is not None:
             return cached_price
 
         try:
-            ticker = yf.Ticker(symbol)
+            ticker = yf.Ticker(yahoo_symbol)
 
             # Get current price from fast_info
             try:
@@ -109,7 +114,7 @@ class MarketDataFetcher:
                 raise ValueError(f"Invalid price data for {symbol}")
 
             self._set_cache(cache_key, float(price))
-            logger.info(f"Fetched price for {symbol}: ${price:.2f}")
+            logger.info(f"Fetched price for {yahoo_symbol}: ${price:.2f}")
             return float(price)
 
         except Exception as e:

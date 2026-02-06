@@ -1,4 +1,4 @@
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, ValidationInfo
 from typing import List, Literal, Optional, Dict
 from datetime import datetime
 
@@ -19,6 +19,15 @@ class Position(BaseModel):
         if v == 0:
             raise ValueError('Quantity cannot be zero')
         return v
+
+    @field_validator('style', mode='before')
+    @classmethod
+    def set_index_style(cls, v: str, info: ValidationInfo) -> str:
+        symbol = info.data.get('symbol', '')
+        index_symbols = {'SPX', 'NDX', 'RUT', 'VIX', 'DJX', 'XSP', 'XND'}
+        if symbol and symbol.upper() in index_symbols:
+            return 'European'
+        return v or 'American'
 
 class Greeks(BaseModel):
     """Option Greeks"""

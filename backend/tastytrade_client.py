@@ -464,13 +464,13 @@ class TastytradeClient:
                 instrument_type = item.get("instrument-type", "")
                 is_etf = item.get("etf", False)
 
-                # Only include Equity instruments
-                if instrument_type == "Equity":
+                # Include Equity and Index instruments
+                if instrument_type in ["Equity", "Index"]:
                     results.append({
                         "symbol": item.get("symbol", ""),
                         "name": item.get("description", ""),
                         "exchange": item.get("listed-market", ""),
-                        "type": "ETF" if is_etf else "EQUITY"
+                        "type": "INDEX" if instrument_type == "Index" else ("ETF" if is_etf else "EQUITY")
                     })
 
             return results

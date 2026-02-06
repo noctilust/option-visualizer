@@ -70,7 +70,7 @@ export interface CalculateResponse {
 export interface SymbolSearchResult {
   symbol: string;
   name: string;
-  type: 'STOCK' | 'ETF';
+  type: 'STOCK' | 'ETF' | 'INDEX';
 }
 
 export interface SymbolSearchResponse {
