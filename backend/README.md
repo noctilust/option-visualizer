@@ -22,6 +22,8 @@ uv run uvicorn main:app --reload --port 8000
 
 | Variable | Description | Default |
 |----------|-------------|---------|
+| `GEMINI_OCR_MODEL` | Gemini model used for screenshot OCR | `gemini-3.1-flash-lite` |
+| `GEMINI_OCR_MAX_DIMENSION` | Longest image side sent to Gemini, for cost control | `1024` |
 | `DEFAULT_RISK_FREE_RATE` | Override risk-free rate | `0.045` |
 | `DEFAULT_IMPLIED_VOLATILITY` | Override implied volatility | `0.25` |
 | `MARKET_DATA_CACHE_MINUTES` | Cache duration | `30` |

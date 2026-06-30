@@ -8,19 +8,19 @@ interface StepProgressProps {
 
 export default function StepProgress({ steps }: StepProgressProps) {
   return (
-    <nav aria-label="Progress" className="mb-8">
-      <ol className="flex items-center justify-center gap-2 md:gap-4">
+    <nav aria-label="Progress" className="w-full overflow-hidden">
+      <ol className="flex w-full items-start justify-between gap-1">
         {steps.map((step, index) => {
           const stepNumber = index + 1;
           const isCompleted = step.completed;
           const isCurrent = !isCompleted && (index === 0 || steps[index - 1].completed);
 
           return (
-            <li key={stepNumber} className="flex items-center">
-              <div className="flex flex-col items-center gap-1">
+            <li key={stepNumber} className="flex min-w-0 flex-1 items-start last:flex-none">
+              <div className="flex min-w-8 flex-col items-center gap-1">
                 <div
                   className={`
-                    flex items-center justify-center w-8 h-8 rounded-full text-sm font-medium transition-all
+                    flex h-8 w-8 items-center justify-center rounded-full text-sm font-medium transition-all
                     ${isCompleted
                       ? 'bg-emerald-500 text-white'
                       : isCurrent
@@ -36,7 +36,7 @@ export default function StepProgress({ steps }: StepProgressProps) {
                     stepNumber
                   )}
                 </div>
-                <span className={`text-xs hidden md:block ${isCurrent ? 'text-foreground font-medium' : 'text-muted-foreground'}`}>
+                <span className={`hidden max-w-20 truncate text-xs md:block ${isCurrent ? 'text-foreground font-medium' : 'text-muted-foreground'}`}>
                   {step.label}
                 </span>
               </div>
@@ -44,7 +44,7 @@ export default function StepProgress({ steps }: StepProgressProps) {
               {/* Connector line */}
               {index < steps.length - 1 && (
                 <div
-                  className={`w-8 md:w-12 h-0.5 mx-1 md:mx-2 transition-colors ${
+                  className={`mt-4 h-0.5 min-w-4 flex-1 mx-1 md:mx-2 transition-colors ${
                     step.completed ? 'bg-emerald-500' : 'bg-muted'
                   }`}
                   aria-hidden="true"

@@ -1,9 +1,10 @@
-import { useEffect, useState } from 'react';
+import { lazy, Suspense, useEffect, useState } from 'react';
 import { TrendingUp, AlertCircle, Loader2 } from 'lucide-react';
-import SkewChart from './SkewChart';
 import ExpirationDropdown from '../ExpirationDropdown';
 import { useVolatilitySkew } from '../../hooks/useVolatilitySkew';
 import type { MarketData } from '../../types';
+
+const SkewChart = lazy(() => import('./SkewChart'));
 
 interface VolatilitySkewProps {
   symbol: string;
@@ -66,8 +67,8 @@ export default function VolatilitySkew({
     // Fallback: find points near 25 delta and calculate skew
     if (skewData?.points && skewData.points.length > 0) {
       // Find call near 25 delta (0.25) and put near -25 delta (-0.25)
-      let call25 = skewData.points.find(p => p.call_delta && p.call_delta >= 0.20 && p.call_delta <= 0.30);
-      let put25 = skewData.points.find(p => p.put_delta && p.put_delta >= -0.30 && p.put_delta <= -0.20);
+      const call25 = skewData.points.find(p => p.call_delta && p.call_delta >= 0.20 && p.call_delta <= 0.30);
+      const put25 = skewData.points.find(p => p.put_delta && p.put_delta >= -0.30 && p.put_delta <= -0.20);
 
       if (call25?.call_iv && put25?.put_iv) {
         return put25.put_iv - call25.call_iv;
@@ -175,7 +176,16 @@ export default function VolatilitySkew({
       {/* Chart */}
       {!loading && !error && skewData && (
         <>
-          <SkewChart data={skewData} isDark={isDark} />
+          <Suspense fallback={
+            <div className="h-[350px] flex items-center justify-center">
+              <div className="flex flex-col items-center gap-3 text-muted-foreground">
+                <Loader2 className="w-8 h-8 animate-spin" />
+                <span className="text-sm">Preparing volatility chart...</span>
+              </div>
+            </div>
+          }>
+            <SkewChart data={skewData} isDark={isDark} />
+          </Suspense>
 
           {/* Legend */}
           <div className="flex items-center justify-center gap-6 mt-4 text-sm">

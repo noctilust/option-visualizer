@@ -50,10 +50,11 @@ function GreeksChart({ portfolioGreeks }: GreeksChartProps) {
         return value.toFixed(2);
       case 'gamma':
         return value.toFixed(4);
-      case 'theta':
+      case 'theta': {
         // Theta is monetary ($/day), show with $ prefix
         const sign = value > 0 ? '+' : value < 0 ? '-' : '';
         return `${sign}$${Math.abs(value).toFixed(2)}`;
+      }
       case 'vega':
         // Vega is monetary ($ per 1% IV), show with $ prefix
         return `$${value.toFixed(2)}`;

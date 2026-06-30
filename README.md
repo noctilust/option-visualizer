@@ -25,6 +25,8 @@ Open [http://localhost:5173](http://localhost:5173)
 - `TASTYTRADE_REFRESH_TOKEN` - Tastytrade OAuth refresh token
 
 Optional:
+- `GEMINI_OCR_MODEL` - Gemini model for screenshot OCR (default: `gemini-3.1-flash-lite`; use a Flash model if accuracy matters more than cost)
+- `GEMINI_OCR_MAX_DIMENSION` - longest image side sent to Gemini for OCR cost control (default: `1024`)
 - `DEFAULT_RISK_FREE_RATE` - Override default risk-free rate (default: 0.045)
 - `DEFAULT_IMPLIED_VOLATILITY` - Override default IV (default: 0.25)
 - `MARKET_DATA_CACHE_MINUTES` - Cache duration in minutes (default: 30)

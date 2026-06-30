@@ -83,17 +83,23 @@ export default function HelpTooltip({ term, children, className = '' }: HelpTool
 
   const definition = termDefinitions[term.toLowerCase()];
 
-  // Calculate position on open
-  useEffect(() => {
-    if (isOpen && triggerRef.current) {
-      const rect = triggerRef.current.getBoundingClientRect();
-      const spaceAbove = rect.top;
-      const spaceBelow = window.innerHeight - rect.bottom;
+  const calculatePosition = () => {
+    if (!triggerRef.current) return;
+    const rect = triggerRef.current.getBoundingClientRect();
+    const spaceAbove = rect.top;
+    const spaceBelow = window.innerHeight - rect.bottom;
+    setPosition(spaceAbove > 200 || spaceAbove > spaceBelow ? 'top' : 'bottom');
+  };
 
-      // Prefer top, but switch to bottom if not enough space
-      setPosition(spaceAbove > 200 || spaceAbove > spaceBelow ? 'top' : 'bottom');
-    }
-  }, [isOpen]);
+  const openTooltip = () => {
+    calculatePosition();
+    setIsOpen(true);
+  };
+
+  const toggleTooltip = () => {
+    if (!isOpen) calculatePosition();
+    setIsOpen((open) => !open);
+  };
 
   // Close on escape or click outside
   useEffect(() => {
@@ -130,10 +136,10 @@ export default function HelpTooltip({ term, children, className = '' }: HelpTool
         <button
           ref={triggerRef}
           type="button"
-          onClick={() => setIsOpen(!isOpen)}
-          onMouseEnter={() => setIsOpen(true)}
+          onClick={toggleTooltip}
+          onMouseEnter={openTooltip}
           onMouseLeave={() => setIsOpen(false)}
-          onFocus={() => setIsOpen(true)}
+          onFocus={openTooltip}
           onBlur={() => setIsOpen(false)}
           className="inline-flex items-center justify-center w-4 h-4 rounded-full text-muted-foreground/60 hover:text-muted-foreground hover:bg-muted/50 transition-colors focus:outline-none focus:ring-2 focus:ring-primary/50 focus:ring-offset-1"
           aria-label={`Help: ${definition.title}`}
@@ -174,6 +180,3 @@ export default function HelpTooltip({ term, children, className = '' }: HelpTool
     </span>
   );
 }
-
-// Export for direct access to definitions
-export { termDefinitions };

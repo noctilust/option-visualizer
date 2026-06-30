@@ -13,17 +13,17 @@ import UploadSection from './components/UploadSection';
 import InputSection from './components/InputSection';
 import PositionsTable from './components/PositionsTable';
 import SymbolAutocomplete from './components/SymbolAutocomplete';
-import PLChart from './components/PLChart';
 import DateSelector from './components/DateSelector';
-import { VolatilitySkew } from './components/VolatilitySkew';
 import StepProgress from './components/StepProgress';
-import { MarketDataCardSkeleton, ChartSkeleton, GreeksCardSkeleton } from './components/Skeleton';
+import { MarketDataCardSkeleton, ChartSkeleton, GreeksCardSkeleton, VolatilitySkewSkeleton } from './components/Skeleton';
 import HelpTooltip from './components/HelpTooltip';
 import Button from './components/Button';
 import Collapsible from './components/Collapsible';
 import StickyHeader from './components/StickyHeader';
 
-// Components - Lazy loaded (only when Greeks are shown)
+// Components - Lazy loaded when analysis charts are needed
+const PLChart = lazy(() => import('./components/PLChart'));
+const VolatilitySkew = lazy(() => import('./components/VolatilitySkew/VolatilitySkew'));
 const GreeksChart = lazy(() => import('./components/GreeksChart'));
 const GreeksVisualization = lazy(() => import('./components/GreeksVisualization'));
 
@@ -119,7 +119,6 @@ function App() {
 
   // Chart zoom hook
   const {
-    zoomRange,
     deferredZoomRange,
     chartContainerRef,
     handleZoomIn,
@@ -197,7 +196,8 @@ function App() {
   }, [setPositions, setCredit, setIsDebit]);
 
   return (
-    <div className="min-h-screen bg-background text-foreground font-sans selection:bg-primary selection:text-primary-foreground">
+    <div className="relative min-h-screen overflow-hidden bg-background text-foreground font-sans selection:bg-primary selection:text-primary-foreground">
+      <div className="app-grid pointer-events-none absolute inset-0 opacity-60" aria-hidden="true" />
       {/* Skip to main content link for accessibility */}
       <a href="#main-content" className="skip-link">
         Skip to main content
@@ -230,12 +230,12 @@ function App() {
           },
         }}
       />
-      <div className="max-w-6xl mx-auto px-4 py-12">
+      <div className="relative z-10 max-w-7xl mx-auto px-4 py-6 md:px-6 md:py-10">
         {/* Theme Toggle Button */}
-        <div className="absolute top-4 right-4 md:top-6 md:right-6">
+        <div className="fixed top-4 right-4 z-30 md:top-6 md:right-6">
           <button
             onClick={toggleTheme}
-            className="p-2.5 rounded-full bg-card border border-border hover:bg-muted transition-colors shadow-sm"
+            className="p-2.5 rounded-full bg-card/90 border border-border hover:bg-muted transition-all shadow-sm hover:-translate-y-0.5"
             title={isDark ? 'Switch to light mode' : 'Switch to dark mode'}
             aria-label={isDark ? 'Switch to light mode' : 'Switch to dark mode'}
           >
@@ -247,33 +247,39 @@ function App() {
           </button>
         </div>
 
-        <header className="text-center mb-8">
-          <h1 className="text-4xl font-extrabold tracking-tight lg:text-5xl mb-4 bg-gradient-to-r from-primary to-blue-600 bg-clip-text text-transparent">
-            Option Strategy Visualizer
-          </h1>
-          <p className="text-muted-foreground text-lg mb-6">
-            Visualize P/L, Greeks, and volatility for any option strategy.
-          </p>
+        <header className="mb-8 grid gap-6 lg:grid-cols-[minmax(0,1fr)_520px] lg:items-end">
+          <div className="max-w-3xl">
+            <p className="section-kicker mb-3">Options desk</p>
+            <h1 className="text-3xl font-black tracking-tight text-foreground sm:text-4xl md:text-6xl">
+              Strategy Workbench
+            </h1>
+            <p className="mt-4 max-w-2xl text-base leading-7 text-muted-foreground md:text-lg">
+              Build an options position, scan its payoff curve, and keep Greeks and volatility context in view.
+            </p>
+          </div>
 
           {/* Step Progress Indicator */}
-          <StepProgress
-            currentStep={chartData.length > 0 ? 5 : positions.length > 0 && credit ? 4 : positions.length > 0 ? 3 : marketData ? 2 : symbol ? 1 : 0}
-            totalSteps={5}
-            steps={[
-              { label: 'Symbol', completed: !!symbol && !!marketData },
-              { label: 'Positions', completed: positions.length > 0 },
-              { label: 'Verify', completed: positions.length > 0 },
-              { label: 'Amount', completed: !!credit },
-              { label: 'Analysis', completed: chartData.length > 0 },
-            ]}
-          />
+          <div className="surface-panel p-4">
+            <StepProgress
+              currentStep={chartData.length > 0 ? 5 : positions.length > 0 && credit ? 4 : positions.length > 0 ? 3 : marketData ? 2 : symbol ? 1 : 0}
+              totalSteps={5}
+              steps={[
+                { label: 'Symbol', completed: !!symbol && !!marketData },
+                { label: 'Positions', completed: positions.length > 0 },
+                { label: 'Verify', completed: positions.length > 0 },
+                { label: 'Amount', completed: !!credit },
+                { label: 'Analysis', completed: chartData.length > 0 },
+              ]}
+            />
+          </div>
         </header>
 
         <main id="main-content" className="space-y-6" tabIndex={-1}>
           {/* Step 1: Stock Symbol */}
-          <div className="bg-card border border-border rounded-xl shadow-sm p-4 md:p-5">
-            <h2 className="text-xl font-semibold mb-1">1. Stock Symbol</h2>
-            <p className="text-sm text-muted-foreground mb-4">Enter the ticker of the underlying stock or ETF for your options strategy.</p>
+          <div className="surface-panel p-4 md:p-5">
+            <p className="section-kicker mb-2">1. Stock Symbol</p>
+            <h2 className="text-xl font-semibold mb-1">Choose the underlying</h2>
+            <p className="text-sm text-muted-foreground mb-4">Enter the ticker of the stock or ETF behind your options strategy.</p>
             <div className="space-y-4">
               <div>
                 <label htmlFor="symbol" className="block text-sm font-medium mb-2">
@@ -300,7 +306,7 @@ function App() {
               {marketData && !loadingMarketData && (
                 <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
                   {/* Current Price */}
-                  <div className="rounded-lg bg-card border border-border px-3 py-2.5 hover:border-emerald-500/30 transition-colors">
+                  <div className="metric-card hover:border-emerald-500/30">
                     <div className="flex items-center gap-1.5 mb-1">
                       <DollarSign className="w-3.5 h-3.5 text-emerald-500" />
                       <span className="text-xs text-muted-foreground font-medium">Current Price</span>
@@ -309,7 +315,7 @@ function App() {
                   </div>
 
                   {/* Implied Volatility */}
-                  <div className="rounded-lg bg-card border border-border px-3 py-2.5 hover:border-blue-500/30 transition-colors">
+                  <div className="metric-card hover:border-blue-500/30">
                     <div className="flex items-center gap-1.5 mb-1">
                       <Activity className="w-3.5 h-3.5 text-blue-500" />
                       <HelpTooltip term="iv">
@@ -320,7 +326,7 @@ function App() {
                   </div>
 
                   {/* IV Rank */}
-                  <div className={`rounded-lg px-3 py-2.5 border transition-colors ${
+                  <div className={`metric-card ${
                     marketData.iv_rank !== null && marketData.iv_rank !== undefined
                       ? marketData.iv_rank < 30
                         ? 'bg-card border-emerald-500/20 hover:border-emerald-500/40'
@@ -359,7 +365,7 @@ function App() {
                   </div>
 
                   {/* Risk-Free Rate */}
-                  <div className="rounded-lg bg-card border border-border px-3 py-2.5 hover:border-purple-500/30 transition-colors">
+                  <div className="metric-card hover:border-amber-500/30">
                     <div className="flex items-center gap-1.5 mb-1">
                       <Percent className="w-3.5 h-3.5 text-purple-500" />
                       <HelpTooltip term="risk-free-rate">
@@ -404,8 +410,9 @@ function App() {
 
           {/* Step 2: Add Positions */}
           {symbol && symbol.trim() !== '' && marketData && marketData.iv_rank !== null && marketData.iv_rank !== undefined ? (
-            <div className="bg-card border border-border rounded-xl shadow-sm p-4 md:p-5 animate-in fade-in slide-in-from-bottom-4 duration-500">
-              <h2 className="text-xl font-semibold mb-1">2. Add Positions</h2>
+            <div className="surface-panel p-4 md:p-5 animate-in fade-in slide-in-from-bottom-4 duration-500">
+              <p className="section-kicker mb-2">2. Add Positions</p>
+              <h2 className="text-xl font-semibold mb-1">Capture the legs</h2>
               <p className="text-sm text-muted-foreground mb-4">Build your strategy by adding option positions (calls, puts) or upload a screenshot.</p>
               <UploadSection
                 onFileSelect={handleFileSelect}
@@ -419,23 +426,26 @@ function App() {
             </div>
           ) : (
             !symbol || symbol.trim() === '' ? (
-              <div className="bg-muted/30 border border-dashed border-border rounded-xl shadow-sm p-4 md:p-5">
-                <h2 className="text-xl font-semibold mb-2 text-muted-foreground">2. Add Positions</h2>
+              <div className="quiet-panel p-4 md:p-5">
+                <p className="section-kicker mb-2">2. Add Positions</p>
+                <h2 className="text-xl font-semibold mb-2 text-muted-foreground">Capture the legs</h2>
                 <p className="text-sm text-muted-foreground">
                   Enter a stock symbol above to continue
                 </p>
               </div>
             ) : loadingMarketData ? (
-              <div className="bg-muted/30 border border-dashed border-border rounded-xl shadow-sm p-4 md:p-5">
-                <h2 className="text-xl font-semibold mb-2 text-muted-foreground">2. Add Positions</h2>
+              <div className="quiet-panel p-4 md:p-5">
+                <p className="section-kicker mb-2">2. Add Positions</p>
+                <h2 className="text-xl font-semibold mb-2 text-muted-foreground">Capture the legs</h2>
                 <div className="flex items-center gap-3">
                   <Loader2 className="h-5 w-5 animate-spin text-primary" />
                   <p className="text-sm text-muted-foreground">Loading market data...</p>
                 </div>
               </div>
             ) : (
-              <div className="bg-muted/30 border border-dashed border-border rounded-xl shadow-sm p-4 md:p-5">
-                <h2 className="text-xl font-semibold mb-2 text-muted-foreground">2. Add Positions</h2>
+              <div className="quiet-panel p-4 md:p-5">
+                <p className="section-kicker mb-2">2. Add Positions</p>
+                <h2 className="text-xl font-semibold mb-2 text-muted-foreground">Capture the legs</h2>
                 <p className="text-sm text-muted-foreground">
                   Unable to fetch market data for "{symbol}". Please try a different symbol.
                 </p>
@@ -445,10 +455,11 @@ function App() {
 
           {positions.length > 0 && (
             <>
-              <div className="bg-card border border-border rounded-xl shadow-sm p-4 md:p-5 animate-in fade-in slide-in-from-bottom-4 duration-500">
+              <div className="surface-panel p-4 md:p-5 animate-in fade-in slide-in-from-bottom-4 duration-500">
                 <div className="flex justify-between items-start mb-4">
                   <div>
-                    <h2 className="text-xl font-semibold mb-1">3. Verify Positions</h2>
+                    <p className="section-kicker mb-2">3. Verify Positions</p>
+                    <h2 className="text-xl font-semibold mb-1">Review the strategy</h2>
                     <p className="text-sm text-muted-foreground">Review and edit your positions before calculating P/L and Greeks.</p>
                   </div>
                   <label className="flex items-center gap-2 cursor-pointer bg-muted/30 px-3 py-2 rounded-lg hover:bg-muted/50 transition-colors shrink-0">
@@ -483,29 +494,34 @@ function App() {
                       title="Volatility Skew"
                       icon={<TrendingUp className="w-5 h-5 text-primary" />}
                       defaultOpen={false}
-                      className="bg-card border border-border rounded-xl shadow-sm p-4"
+                      className="surface-panel p-4"
                     >
+                      <Suspense fallback={<VolatilitySkewSkeleton />}>
+                        <VolatilitySkew
+                          symbol={symbol}
+                          marketData={marketData}
+                          selectedExpiration={primaryExpiration}
+                          isDark={isDark}
+                        />
+                      </Suspense>
+                    </Collapsible>
+                  </div>
+                  <div className="hidden md:block">
+                    <Suspense fallback={<VolatilitySkewSkeleton />}>
                       <VolatilitySkew
                         symbol={symbol}
                         marketData={marketData}
                         selectedExpiration={primaryExpiration}
                         isDark={isDark}
                       />
-                    </Collapsible>
-                  </div>
-                  <div className="hidden md:block">
-                    <VolatilitySkew
-                      symbol={symbol}
-                      marketData={marketData}
-                      selectedExpiration={primaryExpiration}
-                      isDark={isDark}
-                    />
+                    </Suspense>
                   </div>
                 </div>
               )}
 
-              <div className="bg-card border border-border rounded-xl shadow-sm p-4 md:p-5 animate-in fade-in slide-in-from-bottom-4 duration-500 delay-150">
-                <h2 className="text-xl font-semibold mb-1">4. Enter Amount</h2>
+              <div className="surface-panel p-4 md:p-5 animate-in fade-in slide-in-from-bottom-4 duration-500 delay-150">
+                <p className="section-kicker mb-2">4. Enter Amount</p>
+                <h2 className="text-xl font-semibold mb-1">Set the opening price</h2>
                 <p className="text-sm text-muted-foreground mb-4">Enter the credit received or debit paid to open this position.</p>
                 <InputSection credit={credit} setCredit={setCredit} isDebit={isDebit} setIsDebit={setIsDebit} />
               </div>
@@ -514,7 +530,7 @@ function App() {
 
           {/* Loading indicator - skeleton chart */}
           {(loadingStates.chart || loadingStates.greeks) && positions.length > 0 && credit && (
-            <div className="bg-card border border-border rounded-xl shadow-sm p-4 md:p-5 animate-in fade-in duration-300">
+            <div className="surface-panel p-4 md:p-5 animate-in fade-in duration-300">
               <div className="flex justify-between items-center mb-4">
                 <h2 className="text-xl font-semibold mb-1">5. P/L Analysis</h2>
                 <p className="text-sm text-muted-foreground mb-4">View profit/loss projections, Greeks, and volatility analysis for your strategy.</p>
@@ -535,11 +551,12 @@ function App() {
           {chartData.length > 0 && (
             <div
               ref={analysisSectionRef}
-              className="bg-card border border-border rounded-xl shadow-sm p-4 md:p-5 text-foreground animate-in fade-in slide-in-from-bottom-4 duration-500"
+              className="surface-panel p-4 md:p-5 text-foreground animate-in fade-in slide-in-from-bottom-4 duration-500"
             >
               <div className="flex justify-between items-center mb-4">
                 <div>
-                  <h2 className="text-xl font-semibold mb-1">5. P/L Analysis</h2>
+                  <p className="section-kicker mb-2">5. P/L Analysis</p>
+                  <h2 className="text-xl font-semibold mb-1">Payoff surface</h2>
                   <p className="text-sm text-muted-foreground">View profit/loss projections, Greeks, and volatility analysis for your strategy.</p>
                 </div>
                 <Button
@@ -551,24 +568,26 @@ function App() {
                 </Button>
               </div>
 
-              <PLChart
-                chartData={chartData}
-                positions={positions}
-                marketData={marketData}
-                zoomRange={deferredZoomRange}
-                xAxisTicks={xAxisTicks}
-                isDark={isDark}
-                chartContainerRef={chartContainerRef}
-                onZoomIn={handleZoomIn}
-                onZoomOut={handleZoomOut}
-                onResetZoom={handleResetZoom}
-                onMouseDown={handleChartMouseDown}
-                onMouseMove={handleChartMouseMove}
-                onMouseUp={handleChartMouseUp}
-                onMouseLeave={handleChartMouseLeave}
-                evalDaysFromNow={evalDaysFromNow}
-                precomputedDates={precomputedDates}
-              />
+              <Suspense fallback={<ChartSkeleton />}>
+                <PLChart
+                  chartData={chartData}
+                  positions={positions}
+                  marketData={marketData}
+                  zoomRange={deferredZoomRange}
+                  xAxisTicks={xAxisTicks}
+                  isDark={isDark}
+                  chartContainerRef={chartContainerRef}
+                  onZoomIn={handleZoomIn}
+                  onZoomOut={handleZoomOut}
+                  onResetZoom={handleResetZoom}
+                  onMouseDown={handleChartMouseDown}
+                  onMouseMove={handleChartMouseMove}
+                  onMouseUp={handleChartMouseUp}
+                  onMouseLeave={handleChartMouseLeave}
+                  evalDaysFromNow={evalDaysFromNow}
+                  precomputedDates={precomputedDates}
+                />
+              </Suspense>
 
               {/* Date Selector for P/L at different dates */}
               {maxDaysToExpiration !== null && maxDaysToExpiration > 0 && (
