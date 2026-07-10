@@ -1,5 +1,5 @@
 # Build Stage for Frontend
-FROM oven/bun:1-alpine as build-frontend
+FROM oven/bun:1-alpine AS build-frontend
 
 WORKDIR /app/frontend
 
@@ -28,7 +28,7 @@ RUN pip install uv
 COPY backend/pyproject.toml backend/uv.lock ./
 
 # Install dependencies into system python using uv (faster, better wheel handling)
-RUN uv export --frozen --format=requirements-txt | uv pip install --system --no-cache -r /dev/stdin
+RUN uv export --frozen --no-dev --format=requirements-txt | uv pip install --system --no-cache -r /dev/stdin
 
 # Copy backend code
 COPY backend/ .

@@ -56,12 +56,21 @@ export interface BreakevenPoint {
   y: number;
 }
 
+export interface ProbabilityMetrics {
+  probability_of_profit: number;
+  max_profit: number;
+  max_loss: number;
+  breakeven_points: number[];
+  risk_reward_ratio: number | null;
+}
+
 // API Response types
 export interface CalculateResponse {
   data: ChartDataPoint[];
   positions_with_greeks: PositionWithGreeks[] | null;
   portfolio_greeks: PortfolioGreeks | null;
   market_data: MarketData | null;
+  probability_metrics: ProbabilityMetrics | null;
   eval_days_from_now: number | null;        // Days from now used for pl_at_date
   max_days_to_expiration: number | null;    // Max DTE for slider range
   precomputed_dates: Record<number, number[]> | null;  // Pre-computed P/L curves at different dates

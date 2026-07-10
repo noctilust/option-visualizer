@@ -26,7 +26,7 @@ function ChartLoadingState({ message }: { message: string }) {
   );
 }
 
-export default function VolatilitySkew({
+function VolatilitySkewContent({
   symbol,
   marketData,
   selectedExpiration: propExpiration,
@@ -36,11 +36,6 @@ export default function VolatilitySkew({
 }: VolatilitySkewProps) {
   // Local state for expiration
   const [localExpiration, setLocalExpiration] = useState(propExpiration);
-
-  // Update local when prop changes
-  useEffect(() => {
-    setLocalExpiration(propExpiration);
-  }, [propExpiration]);
 
   const { skewData, loading, error, fetchSkewData, clearSkewData } = useVolatilitySkew();
 
@@ -248,5 +243,16 @@ export default function VolatilitySkew({
         </div>
       )}
     </div>
+  );
+}
+
+export default function VolatilitySkew(props: VolatilitySkewProps) {
+  const { symbol, selectedExpiration } = props;
+
+  return (
+    <VolatilitySkewContent
+      key={`${symbol}-${selectedExpiration}`}
+      {...props}
+    />
   );
 }

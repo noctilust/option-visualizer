@@ -17,6 +17,8 @@ Open [http://localhost:5173](http://localhost:5173)
 |---------|-------------|
 | `bun run dev` | Development server |
 | `bun run build` | Production build |
+| `bun run lint` | Run ESLint |
+| `bun run typecheck` | Run TypeScript validation |
 | `bun run test` | Run tests |
 
 ## Environment Variables

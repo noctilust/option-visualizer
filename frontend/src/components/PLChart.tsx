@@ -1,4 +1,4 @@
-import { useMemo, useState, type RefObject } from 'react';
+import { useMemo, type RefObject } from 'react';
 import {
   ComposedChart,
   Area,
@@ -51,8 +51,6 @@ export default function PLChart({
   evalDaysFromNow,
   precomputedDates,
 }: PLChartProps) {
-  const [_hoveredPoint, _setHoveredPoint] = useState<{ x: number; y: number } | null>(null);
-
   // Calculate breakeven points
   const breakevenPoints = useMemo((): BreakevenPoint[] => {
     if (!chartData.length) return [];
@@ -290,13 +288,6 @@ export default function PLChart({
           <ComposedChart
             data={visibleChartData}
             margin={{ top: 20, right: 0, left: 0, bottom: 10 }}
-            onMouseMove={(e) => {
-              if (e && e.activePayload && e.activePayload.length > 0) {
-                const data = e.activePayload[0].payload;
-                setHoveredPoint({ x: data.price, y: data.pl });
-              }
-            }}
-            onMouseLeave={() => setHoveredPoint(null)}
           >
             <CartesianGrid stroke={isDark ? '#525252' : '#e5e7eb'} vertical={false} />
 

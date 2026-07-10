@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { DollarSign, TrendingUp, TrendingDown } from 'lucide-react';
+import { DollarSign } from 'lucide-react';
 
 interface StickyHeaderProps {
   symbol: string;

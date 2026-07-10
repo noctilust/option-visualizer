@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback, type KeyboardEvent, type ChangeEvent } from 'react';
-import { Search, Loader2, X } from 'lucide-react';
+import { Search, X } from 'lucide-react';
 import type { SymbolSearchResult } from '../types';
 
 const API_BASE = import.meta.env.VITE_API_URL || '';
@@ -19,7 +19,6 @@ export default function SymbolAutocomplete({
   placeholder = "TSLA",
   loading = false,
 }: SymbolAutocompleteProps) {
-  const [inputValue, setInputValue] = useState(value || '');
   const [results, setResults] = useState<SymbolSearchResult[]>([]);
   const [isOpen, setIsOpen] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
@@ -30,11 +29,6 @@ export default function SymbolAutocomplete({
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const listRef = useRef<HTMLUListElement>(null);
   const [dropdownPosition, setDropdownPosition] = useState<'bottom' | 'top'>('bottom');
-
-  // Sync input value with external value
-  useEffect(() => {
-    setInputValue(value || '');
-  }, [value]);
 
   // Search for symbols
   const searchSymbols = useCallback(async (query: string) => {
@@ -67,7 +61,6 @@ export default function SymbolAutocomplete({
   // Debounced search
   const handleInputChange = (e: ChangeEvent<HTMLInputElement>) => {
     const newValue = e.target.value.toUpperCase();
-    setInputValue(newValue);
     onChange?.(newValue);
 
     // Clear existing debounce
@@ -86,7 +79,6 @@ export default function SymbolAutocomplete({
 
   // Handle selection
   const handleSelect = (result: SymbolSearchResult) => {
-    setInputValue(result.symbol);
     onChange?.(result.symbol);
     onSelect?.(result);
     setIsOpen(false);
@@ -97,7 +89,6 @@ export default function SymbolAutocomplete({
 
   // Clear input
   const handleClear = () => {
-    setInputValue('');
     onChange?.('');
     setResults([]);
     setIsOpen(false);
@@ -132,13 +123,13 @@ export default function SymbolAutocomplete({
         if (highlightedIndex >= 0 && results[highlightedIndex]) {
           // Select highlighted dropdown item
           handleSelect(results[highlightedIndex]);
-        } else if (inputValue.trim()) {
+        } else if (value.trim()) {
           // Submit the typed value directly
           setIsOpen(false);
           setResults([]);
           setHasSearched(false);
-          onChange?.(inputValue.trim().toUpperCase());
-          onSelect?.({ symbol: inputValue.trim().toUpperCase() });
+          onChange?.(value.trim().toUpperCase());
+          onSelect?.({ symbol: value.trim().toUpperCase() });
           inputRef.current?.blur();
         }
         break;
@@ -213,7 +204,7 @@ export default function SymbolAutocomplete({
             ref={inputRef}
             id="symbol"
             type="text"
-            value={inputValue}
+            value={value}
             onChange={handleInputChange}
             onKeyDown={handleKeyDown}
             onFocus={() => results.length > 0 && setIsOpen(true)}
@@ -222,7 +213,7 @@ export default function SymbolAutocomplete({
             autoComplete="off"
             spellCheck="false"
           />
-          {inputValue && (
+          {value && (
             <button
               onClick={handleClear}
               className="absolute right-2 top-1/2 -translate-y-1/2 p-1 rounded-full hover:bg-muted transition-colors"
@@ -284,14 +275,14 @@ export default function SymbolAutocomplete({
       )}
 
       {/* No results message - only show after search completes */}
-      {hasSearched && results.length === 0 && inputValue && !isLoading && (
+      {hasSearched && results.length === 0 && value && !isLoading && (
         <div
           ref={dropdownRef}
           className={`absolute z-50 w-full bg-card border border-border rounded-lg shadow-lg p-4 text-center text-muted-foreground ${
             dropdownPosition === 'top' ? 'bottom-full mb-1' : 'top-full mt-1'
           }`}
         >
-          No US stocks or ETFs found for "{inputValue}"
+          No US stocks or ETFs found for "{value}"
         </div>
       )}
     </div>

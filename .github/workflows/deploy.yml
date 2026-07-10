@@ -29,10 +29,13 @@ jobs:
           cd frontend
           bun install --frozen-lockfile
 
-      - name: Run frontend tests
+      - name: Validate frontend
         run: |
           cd frontend
+          bun run lint
+          bun run typecheck
           bun run test
+          bun run build
 
       - name: Set up Python
         uses: actions/setup-python@v5
