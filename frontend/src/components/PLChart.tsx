@@ -13,6 +13,7 @@ import {
 } from 'recharts';
 import { Plus, Minus, RotateCcw, TrendingUp, TrendingDown, Circle } from 'lucide-react';
 import type { ChartDataPoint, Position, MarketData, ZoomRange, BreakevenPoint } from '../types';
+import { withProfitLossSegments } from './plChartData';
 
 interface PLChartProps {
   chartData: ChartDataPoint[];
@@ -134,7 +135,7 @@ export default function PLChart({
     // Don't include pl_at_date when in expiration mode
     const isExpirationMode = evalDaysFromNow === null || evalDaysFromNow === undefined;
 
-    return chartData.slice(start, end + 1).map((d, idx) => {
+    const points = chartData.slice(start, end + 1).map((d, idx) => {
       // Use interpolated P/L if available, otherwise use API-provided pl_at_date
       // But only when NOT in expiration mode
       const globalIdx = start + idx;
@@ -146,14 +147,12 @@ export default function PLChart({
 
       return {
         ...d,
-        profit: d.pl > 0 ? d.pl : undefined,
-        loss: d.pl < 0 ? d.pl : undefined,
         // For the date line, use interpolated or API-provided pl_at_date
         pl_at_date: plAtDate,
-        pl_at_date_profit: plAtDate !== undefined && plAtDate > 0 ? plAtDate : undefined,
-        pl_at_date_loss: plAtDate !== undefined && plAtDate < 0 ? plAtDate : undefined,
       };
     });
+
+    return withProfitLossSegments(points);
   }, [chartData, zoomRange, interpolatedPLAtDate, evalDaysFromNow]);
 
   
@@ -563,7 +562,7 @@ export default function PLChart({
               </>
             )}
             <Area
-              type="monotone"
+              type="linear"
               dataKey="profit"
               stroke="#10b981"
               fill="#10b981"
@@ -573,7 +572,7 @@ export default function PLChart({
               isAnimationActive={false}
             />
             <Area
-              type="monotone"
+              type="linear"
               dataKey="loss"
               stroke="#ef4444"
               fill="#ef4444"
