@@ -149,12 +149,20 @@ jobs:
         run: |
           set -euo pipefail
 
-          mapfile -t digests < <(
+          image_json="$(
             gcloud container images list-tags "$IMAGE" \
               --limit=999 \
               --sort-by=~timestamp \
-              --format='value(digest)'
+              --format=json
           )
+          mapfile -t digests < <(jq -r '.[].digest' <<<"$image_json")
+
+          for digest in "${digests[@]}"; do
+            if [[ ! "$digest" =~ ^sha256:[0-9a-f]{64}$ ]]; then
+              echo "Refusing to delete malformed image digest: $digest" >&2
+              exit 1
+            fi
+          done
 
           if (( ${#digests[@]} <= RETAIN_IMAGE_COUNT )); then
             echo "No obsolete images to delete (${#digests[@]} retained)."
