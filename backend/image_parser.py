@@ -1,11 +1,13 @@
-import PIL.Image
 import io
 import json
 import os
+from typing import Literal
+
+import PIL.Image
 from dotenv import load_dotenv
 from google import genai
 from google.genai import types
-from pydantic import BaseModel, Field, ValidationError
+from pydantic import BaseModel, Field, ValidationError, field_validator
 
 # Load environment variables
 load_dotenv()
@@ -16,10 +18,17 @@ max_dimension = int(os.environ.get("GEMINI_OCR_MAX_DIMENSION", "1024"))
 
 
 class OCRPosition(BaseModel):
-    qty: int = Field(description="Quantity. Positive for long, negative for short.")
+    qty: int = Field(description="Quantity. Positive for long, negative for short; never zero.")
     expiration: str = Field(description='Expiration date formatted as "Mon Day", for example "Jan 16".')
     strike: float = Field(gt=0, description="Option strike price.")
-    type: str = Field(pattern="^[CP]$", description='Option type: "C" for call or "P" for put.')
+    type: Literal["C", "P"] = Field(description='Option type: "C" for call or "P" for put.')
+
+    @field_validator("qty")
+    @classmethod
+    def quantity_must_be_nonzero(cls, value: int) -> int:
+        if value == 0:
+            raise ValueError("quantity must not be zero")
+        return value
 
 
 class OCRPositions(BaseModel):
@@ -44,6 +53,7 @@ def _prepare_image(image_bytes):
     image.save(output, format="PNG", optimize=True)
     return output.getvalue(), "image/png"
 
+
 def parse_screenshot(image_bytes):
     if not api_key:
         print("Error: GEMINI_API_KEY not found in environment variables.")
@@ -51,36 +61,30 @@ def parse_screenshot(image_bytes):
 
     try:
         optimized_image, mime_type = _prepare_image(image_bytes)
-        client = genai.Client(api_key=api_key)
 
         prompt = """
-        Extract the option positions from this screenshot.
-        Return JSON with a single key, "positions", containing a list where each item has:
-        - qty (integer): The quantity (e.g., -1, 1).
-        - expiration (string): The expiration date (e.g., "Jan 16"). Format as "Mon Day".
-        - strike (float): The strike price.
-        - type (string): "C" for Call, "P" for Put.
-        
+        Extract every option position visible in this screenshot using the provided response schema.
+
         Rules:
         1. Ignore "Days" (e.g. 22d).
         2. Fix common OCR errors (e.g. "Janié" -> "Jan 16", "©" -> "C").
         3. Return only positions visible in the screenshot.
         """
 
-        response = client.models.generate_content(
-            model=ocr_model,
-            contents=[
-                prompt,
-                types.Part.from_bytes(data=optimized_image, mime_type=mime_type),
-            ],
-            config=types.GenerateContentConfig(
-                temperature=0,
-                response_mime_type="application/json",
-                response_schema=OCRPositions,
-            ),
-        )
+        with genai.Client(api_key=api_key) as client:
+            response = client.models.generate_content(
+                model=ocr_model,
+                contents=[
+                    prompt,
+                    types.Part.from_bytes(data=optimized_image, mime_type=mime_type),
+                ],
+                config=types.GenerateContentConfig(
+                    response_mime_type="application/json",
+                    response_schema=OCRPositions,
+                ),
+            )
 
-        text = response.text.strip()
+        text = (response.text or "").strip()
         if text.startswith("```json"):
             text = text[7:]
         if text.startswith("```"):

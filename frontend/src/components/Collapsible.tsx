@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, type ReactNode } from 'react';
+import { useState, useRef, useEffect, useId, type ReactNode } from 'react';
 import { ChevronDown } from 'lucide-react';
 
 interface CollapsibleProps {
@@ -7,6 +7,8 @@ interface CollapsibleProps {
   defaultOpen?: boolean;
   /** Only collapsible on mobile (< md breakpoint) */
   mobileOnly?: boolean;
+  /** Do not mount expensive children while a collapsible section is closed. */
+  unmountOnClosed?: boolean;
   icon?: ReactNode;
   className?: string;
 }
@@ -16,13 +18,17 @@ export default function Collapsible({
   children,
   defaultOpen = false,
   mobileOnly = false,
+  unmountOnClosed = false,
   icon,
   className = '',
 }: CollapsibleProps) {
   const [isOpen, setIsOpen] = useState(defaultOpen);
   const [height, setHeight] = useState<number | 'auto'>('auto');
   const contentRef = useRef<HTMLDivElement>(null);
-  const [isMobile, setIsMobile] = useState(false);
+  const contentId = `collapsible-${useId()}`;
+  const [isMobile, setIsMobile] = useState(() => (
+    typeof window !== 'undefined' && window.innerWidth < 768
+  ));
 
   // Check if we're on mobile
   useEffect(() => {
@@ -46,7 +52,7 @@ export default function Collapsible({
       resizeObserver.observe(contentRef.current);
       return () => resizeObserver.disconnect();
     }
-  }, []);
+  }, [isOpen, isMobile]);
 
   // If mobileOnly and not on mobile, render children directly
   if (mobileOnly && !isMobile) {
@@ -62,6 +68,7 @@ export default function Collapsible({
   }
 
   const isCollapsible = !mobileOnly || isMobile;
+  const shouldRenderChildren = !unmountOnClosed || !isCollapsible || isOpen;
 
   return (
     <div className={className}>
@@ -72,7 +79,7 @@ export default function Collapsible({
           isCollapsible ? 'cursor-pointer' : 'cursor-default'
         }`}
         aria-expanded={isOpen}
-        aria-controls="collapsible-content"
+        aria-controls={contentId}
       >
         <div className="flex items-center gap-2">
           {icon}
@@ -89,14 +96,14 @@ export default function Collapsible({
       </button>
 
       <div
-        id="collapsible-content"
+        id={contentId}
         style={{
           height: isOpen ? height : 0,
           overflow: 'hidden',
           transition: 'height 0.2s ease-out',
         }}
       >
-        <div ref={contentRef}>{children}</div>
+        <div ref={contentRef}>{shouldRenderChildren ? children : null}</div>
       </div>
     </div>
   );

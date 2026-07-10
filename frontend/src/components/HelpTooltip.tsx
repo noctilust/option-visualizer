@@ -1,5 +1,18 @@
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect, useCallback, useId } from 'react';
+import { createPortal } from 'react-dom';
 import { HelpCircle } from 'lucide-react';
+
+const TOOLTIP_MAX_WIDTH = 288;
+const VIEWPORT_PADDING = 8;
+const TOOLTIP_GAP = 8;
+
+interface TooltipPosition {
+  top: number;
+  left: number;
+  width: number;
+  arrowLeft: number;
+  placement: 'top' | 'bottom';
+}
 
 interface HelpTooltipProps {
   term: string;
@@ -77,19 +90,39 @@ const termDefinitions: Record<string, { title: string; description: string; exam
 
 export default function HelpTooltip({ term, children, className = '' }: HelpTooltipProps) {
   const [isOpen, setIsOpen] = useState(false);
-  const [position, setPosition] = useState<'top' | 'bottom'>('top');
+  const [position, setPosition] = useState<TooltipPosition>({
+    top: 0,
+    left: VIEWPORT_PADDING,
+    width: TOOLTIP_MAX_WIDTH,
+    arrowLeft: TOOLTIP_MAX_WIDTH / 2,
+    placement: 'top',
+  });
   const tooltipRef = useRef<HTMLDivElement>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
+  const tooltipId = `tooltip-${useId()}`;
 
   const definition = termDefinitions[term.toLowerCase()];
 
-  const calculatePosition = () => {
+  const calculatePosition = useCallback(() => {
     if (!triggerRef.current) return;
     const rect = triggerRef.current.getBoundingClientRect();
     const spaceAbove = rect.top;
     const spaceBelow = window.innerHeight - rect.bottom;
-    setPosition(spaceAbove > 200 || spaceAbove > spaceBelow ? 'top' : 'bottom');
-  };
+    const placement = spaceAbove > 200 || spaceAbove > spaceBelow ? 'top' : 'bottom';
+    const width = Math.max(0, Math.min(TOOLTIP_MAX_WIDTH, window.innerWidth - VIEWPORT_PADDING * 2));
+    const triggerCenter = rect.left + rect.width / 2;
+    const maxLeft = Math.max(VIEWPORT_PADDING, window.innerWidth - width - VIEWPORT_PADDING);
+    const left = Math.min(Math.max(triggerCenter - width / 2, VIEWPORT_PADDING), maxLeft);
+    const arrowLeft = Math.min(Math.max(triggerCenter - left, 12), Math.max(12, width - 12));
+
+    setPosition({
+      top: placement === 'top' ? rect.top - TOOLTIP_GAP : rect.bottom + TOOLTIP_GAP,
+      left,
+      width,
+      arrowLeft,
+      placement,
+    });
+  }, []);
 
   const openTooltip = () => {
     calculatePosition();
@@ -114,16 +147,22 @@ export default function HelpTooltip({ term, children, className = '' }: HelpTool
       }
     };
 
+    const handleViewportChange = () => calculatePosition();
+
     if (isOpen) {
       document.addEventListener('keydown', handleEscape);
       document.addEventListener('mousedown', handleClickOutside);
+      window.addEventListener('resize', handleViewportChange);
+      window.addEventListener('scroll', handleViewportChange, true);
     }
 
     return () => {
       document.removeEventListener('keydown', handleEscape);
       document.removeEventListener('mousedown', handleClickOutside);
+      window.removeEventListener('resize', handleViewportChange);
+      window.removeEventListener('scroll', handleViewportChange, true);
     };
-  }, [isOpen]);
+  }, [isOpen, calculatePosition]);
 
   if (!definition) {
     return <>{children}</>;
@@ -144,24 +183,28 @@ export default function HelpTooltip({ term, children, className = '' }: HelpTool
           className="inline-flex items-center justify-center w-4 h-4 rounded-full text-muted-foreground/60 hover:text-muted-foreground hover:bg-muted/50 transition-colors focus:outline-none focus:ring-2 focus:ring-primary/50 focus:ring-offset-1"
           aria-label={`Help: ${definition.title}`}
           aria-expanded={isOpen}
+          aria-describedby={isOpen ? tooltipId : undefined}
         >
           <HelpCircle className="w-3.5 h-3.5" aria-hidden="true" />
         </button>
 
-        {isOpen && (
+        {isOpen && typeof document !== 'undefined' && createPortal(
           <div
+            id={tooltipId}
             ref={tooltipRef}
             role="tooltip"
-            className={`absolute z-50 w-72 p-3 rounded-lg shadow-lg border bg-popover text-popover-foreground text-left
-              ${position === 'top' ? 'bottom-full mb-2' : 'top-full mt-2'}
-              left-1/2 -translate-x-1/2
-              animate-in fade-in-0 zoom-in-95 duration-150
-            `}
+            style={{
+              top: position.top,
+              left: position.left,
+              width: position.width,
+              transform: position.placement === 'top' ? 'translateY(-100%)' : undefined,
+            }}
+            className="fixed z-[100] p-3 rounded-lg shadow-lg border bg-popover text-popover-foreground text-left animate-in fade-in-0 zoom-in-95 duration-150"
           >
-            {/* Arrow */}
             <div
-              className={`absolute left-1/2 -translate-x-1/2 w-2 h-2 rotate-45 bg-popover border-border
-                ${position === 'top' ? 'bottom-[-5px] border-r border-b' : 'top-[-5px] border-l border-t'}
+              style={{ left: position.arrowLeft }}
+              className={`absolute -translate-x-1/2 w-2 h-2 rotate-45 bg-popover border-border
+                ${position.placement === 'top' ? 'bottom-[-5px] border-r border-b' : 'top-[-5px] border-l border-t'}
               `}
             />
 
@@ -174,7 +217,8 @@ export default function HelpTooltip({ term, children, className = '' }: HelpTool
                 {definition.example}
               </p>
             )}
-          </div>
+          </div>,
+          document.body,
         )}
       </span>
     </span>

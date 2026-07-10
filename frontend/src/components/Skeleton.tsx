@@ -158,7 +158,7 @@ export function PositionsTableSkeleton({ rows = 3 }: { rows?: number }) {
 
 export function VolatilitySkewSkeleton() {
   return (
-    <div className="bg-card border border-border rounded-xl shadow-sm p-4 md:p-5">
+    <div className="bg-card border border-border rounded-lg shadow-sm p-4 md:p-5">
       <div className="flex items-center justify-between mb-4">
         <div className="flex items-center gap-2">
           <Skeleton variant="circular" width={20} height={20} />

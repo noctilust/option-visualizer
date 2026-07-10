@@ -16,6 +16,7 @@ import SymbolAutocomplete from './components/SymbolAutocomplete';
 import DateSelector from './components/DateSelector';
 import StepProgress from './components/StepProgress';
 import { MarketDataCardSkeleton, ChartSkeleton, GreeksCardSkeleton, VolatilitySkewSkeleton } from './components/Skeleton';
+import AddPositionsPlaceholder from './components/AddPositionsPlaceholder';
 import HelpTooltip from './components/HelpTooltip';
 import Button from './components/Button';
 import Collapsible from './components/Collapsible';
@@ -23,7 +24,7 @@ import StickyHeader from './components/StickyHeader';
 
 // Components - Lazy loaded when analysis charts are needed
 const PLChart = lazy(() => import('./components/PLChart'));
-const VolatilitySkew = lazy(() => import('./components/VolatilitySkew/VolatilitySkew'));
+const VolatilitySkewPanel = lazy(() => import('./components/VolatilitySkew/VolatilitySkewPanel'));
 const GreeksChart = lazy(() => import('./components/GreeksChart'));
 const GreeksVisualization = lazy(() => import('./components/GreeksVisualization'));
 
@@ -196,7 +197,7 @@ function App() {
   }, [setPositions, setCredit, setIsDebit]);
 
   return (
-    <div className="relative min-h-screen overflow-hidden bg-background text-foreground font-sans selection:bg-primary selection:text-primary-foreground">
+    <div className="relative min-h-screen bg-background text-foreground font-sans selection:bg-primary selection:text-primary-foreground">
       <div className="app-grid pointer-events-none absolute inset-0 opacity-60" aria-hidden="true" />
       {/* Skip to main content link for accessibility */}
       <a href="#main-content" className="skip-link">
@@ -425,32 +426,10 @@ function App() {
               {error && <p className="text-center text-destructive">{error}</p>}
             </div>
           ) : (
-            !symbol || symbol.trim() === '' ? (
-              <div className="quiet-panel p-4 md:p-5">
-                <p className="section-kicker mb-2">2. Add Positions</p>
-                <h2 className="text-xl font-semibold mb-2 text-muted-foreground">Capture the legs</h2>
-                <p className="text-sm text-muted-foreground">
-                  Enter a stock symbol above to continue
-                </p>
-              </div>
-            ) : loadingMarketData ? (
-              <div className="quiet-panel p-4 md:p-5">
-                <p className="section-kicker mb-2">2. Add Positions</p>
-                <h2 className="text-xl font-semibold mb-2 text-muted-foreground">Capture the legs</h2>
-                <div className="flex items-center gap-3">
-                  <Loader2 className="h-5 w-5 animate-spin text-primary" />
-                  <p className="text-sm text-muted-foreground">Loading market data...</p>
-                </div>
-              </div>
-            ) : (
-              <div className="quiet-panel p-4 md:p-5">
-                <p className="section-kicker mb-2">2. Add Positions</p>
-                <h2 className="text-xl font-semibold mb-2 text-muted-foreground">Capture the legs</h2>
-                <p className="text-sm text-muted-foreground">
-                  Unable to fetch market data for "{symbol}". Please try a different symbol.
-                </p>
-              </div>
-            )
+            <AddPositionsPlaceholder
+              status={!symbol || symbol.trim() === '' ? 'waiting' : loadingMarketData ? 'loading' : 'error'}
+              symbol={symbol}
+            />
           )}
 
           {positions.length > 0 && (
@@ -489,33 +468,14 @@ function App() {
               {/* Volatility Skew - Market context for selected expiration */}
               {symbol && marketData && primaryExpiration && (
                 <div className="animate-in fade-in slide-in-from-bottom-4 duration-500 delay-100">
-                  <div className="md:hidden">
-                    <Collapsible
-                      title="Volatility Skew"
-                      icon={<TrendingUp className="w-5 h-5 text-primary" />}
-                      defaultOpen={false}
-                      className="surface-panel p-4"
-                    >
-                      <Suspense fallback={<VolatilitySkewSkeleton />}>
-                        <VolatilitySkew
-                          symbol={symbol}
-                          marketData={marketData}
-                          selectedExpiration={primaryExpiration}
-                          isDark={isDark}
-                        />
-                      </Suspense>
-                    </Collapsible>
-                  </div>
-                  <div className="hidden md:block">
-                    <Suspense fallback={<VolatilitySkewSkeleton />}>
-                      <VolatilitySkew
-                        symbol={symbol}
-                        marketData={marketData}
-                        selectedExpiration={primaryExpiration}
-                        isDark={isDark}
-                      />
-                    </Suspense>
-                  </div>
+                  <Suspense fallback={<VolatilitySkewSkeleton />}>
+                    <VolatilitySkewPanel
+                      symbol={symbol}
+                      marketData={marketData}
+                      selectedExpiration={primaryExpiration}
+                      isDark={isDark}
+                    />
+                  </Suspense>
                 </div>
               )}
 

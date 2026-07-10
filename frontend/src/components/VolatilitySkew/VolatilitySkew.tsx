@@ -12,6 +12,18 @@ interface VolatilitySkewProps {
   selectedExpiration: string;
   isDark: boolean;
   onExpirationChange?: (expiration: string) => void;
+  embedded?: boolean;
+}
+
+function ChartLoadingState({ message }: { message: string }) {
+  return (
+    <div className="h-[350px] flex items-center justify-center">
+      <div className="flex flex-col items-center gap-3 text-muted-foreground">
+        <Loader2 className="w-8 h-8 animate-spin" />
+        <span className="text-sm">{message}</span>
+      </div>
+    </div>
+  );
 }
 
 export default function VolatilitySkew({
@@ -20,6 +32,7 @@ export default function VolatilitySkew({
   selectedExpiration: propExpiration,
   isDark,
   onExpirationChange,
+  embedded = false,
 }: VolatilitySkewProps) {
   // Local state for expiration
   const [localExpiration, setLocalExpiration] = useState(propExpiration);
@@ -87,12 +100,14 @@ export default function VolatilitySkew({
   })();
 
   return (
-    <div className="bg-card border border-border rounded-xl shadow-sm p-4 md:p-5">
-      <div className="flex items-center justify-between mb-4">
-        <h2 className="text-xl font-semibold flex items-center gap-2">
-          <TrendingUp className="w-5 h-5 text-primary" />
-          Volatility Skew
-        </h2>
+    <div className={embedded ? '' : 'bg-card border border-border rounded-xl shadow-sm p-4 md:p-5'}>
+      <div className={`flex items-center mb-4 ${embedded ? 'justify-end' : 'justify-between'}`}>
+        {!embedded && (
+          <h2 className="text-xl font-semibold flex items-center gap-2">
+            <TrendingUp className="w-5 h-5 text-primary" />
+            Volatility Skew
+          </h2>
+        )}
 
         {/* Expiration Selector */}
         {symbol && (
@@ -155,12 +170,7 @@ export default function VolatilitySkew({
 
       {/* Loading State */}
       {loading && (
-        <div className="h-[350px] flex items-center justify-center">
-          <div className="flex flex-col items-center gap-3 text-muted-foreground">
-            <Loader2 className="w-8 h-8 animate-spin" />
-            <span className="text-sm">Fetching volatility skew data...</span>
-          </div>
-        </div>
+        <ChartLoadingState message="Fetching volatility skew data..." />
       )}
 
       {/* Error State */}
@@ -176,14 +186,7 @@ export default function VolatilitySkew({
       {/* Chart */}
       {!loading && !error && skewData && (
         <>
-          <Suspense fallback={
-            <div className="h-[350px] flex items-center justify-center">
-              <div className="flex flex-col items-center gap-3 text-muted-foreground">
-                <Loader2 className="w-8 h-8 animate-spin" />
-                <span className="text-sm">Preparing volatility chart...</span>
-              </div>
-            </div>
-          }>
+          <Suspense fallback={<ChartLoadingState message="Preparing volatility chart..." />}>
             <SkewChart data={skewData} isDark={isDark} />
           </Suspense>
 
