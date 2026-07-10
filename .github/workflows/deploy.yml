@@ -64,6 +64,9 @@ jobs:
     name: Build and Deploy
     needs: test
     runs-on: ubuntu-latest
+    concurrency:
+      group: option-visualizer-production
+      cancel-in-progress: false
     
     permissions:
       contents: 'read'
@@ -137,3 +140,32 @@ jobs:
 
       - name: Show Output
         run: echo "Service URL - ${{ steps.deploy.outputs.url }}"
+
+      - name: Clean up old container images
+        shell: bash
+        env:
+          IMAGE: gcr.io/${{ env.PROJECT_ID }}/${{ env.SERVICE }}
+          RETAIN_IMAGE_COUNT: "2"
+        run: |
+          set -euo pipefail
+
+          mapfile -t digests < <(
+            gcloud container images list-tags "$IMAGE" \
+              --limit=999 \
+              --sort-by=~timestamp \
+              --format='value(digest)'
+          )
+
+          if (( ${#digests[@]} <= RETAIN_IMAGE_COUNT )); then
+            echo "No obsolete images to delete (${#digests[@]} retained)."
+            exit 0
+          fi
+
+          echo "Retaining the ${RETAIN_IMAGE_COUNT} newest images."
+          for digest in "${digests[@]:RETAIN_IMAGE_COUNT}"; do
+            echo "Deleting obsolete image: ${IMAGE}@${digest}"
+            gcloud container images delete \
+              "${IMAGE}@${digest}" \
+              --force-delete-tags \
+              --quiet
+          done
