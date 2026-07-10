@@ -155,25 +155,29 @@ jobs:
               --sort-by=~timestamp \
               --format=json
           )
-          mapfile -t digests < <(jq -r '.[].digest' <<<"$image_json")
 
-          for digest in "${digests[@]}"; do
-            if [[ ! "$digest" =~ ^sha256:[0-9a-f]{64}$ ]]; then
-              echo "Refusing to delete malformed image digest: $digest" >&2
-              exit 1
-            fi
-          done
+          if ! jq -e 'all(.[]; (.digest | test("^sha256:[0-9a-f]{64}$")))' \
+            <<<"$image_json" >/dev/null; then
+            echo "Refusing to delete malformed image digests." >&2
+            exit 1
+          fi
 
-          if (( ${#digests[@]} <= RETAIN_IMAGE_COUNT )); then
-            echo "No obsolete images to delete (${#digests[@]} retained)."
+          image_count="$(jq 'length' <<<"$image_json")"
+          obsolete_digests="$(
+            jq -r --argjson retain "$RETAIN_IMAGE_COUNT" \
+              '.[$retain:] | .[].digest' <<<"$image_json"
+          )"
+
+          if [ -z "$obsolete_digests" ]; then
+            echo "No obsolete images to delete (${image_count} retained)."
             exit 0
           fi
 
           echo "Retaining the ${RETAIN_IMAGE_COUNT} newest images."
-          for digest in "${digests[@]:RETAIN_IMAGE_COUNT}"; do
+          while IFS= read -r digest; do
             echo "Deleting obsolete image: ${IMAGE}@${digest}"
             gcloud container images delete \
               "${IMAGE}@${digest}" \
               --force-delete-tags \
               --quiet
-          done
+          done <<<"$obsolete_digests"
