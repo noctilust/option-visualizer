@@ -95,11 +95,11 @@ function VolatilitySkewContent({
   })();
 
   return (
-    <div className={embedded ? '' : 'bg-card border border-border rounded-xl shadow-sm p-4 md:p-5'}>
+    <div className={embedded ? '' : 'bg-card border border-border rounded-lg p-4 md:p-5'}>
       <div className={`flex items-center mb-4 ${embedded ? 'justify-end' : 'justify-between'}`}>
         {!embedded && (
-          <h2 className="text-xl font-semibold flex items-center gap-2">
-            <TrendingUp className="w-5 h-5 text-primary" />
+          <h2 className="text-lg font-semibold tracking-tight flex items-center gap-2">
+            <TrendingUp className="w-5 h-5 text-muted-foreground" />
             Volatility Skew
           </h2>
         )}
@@ -119,9 +119,9 @@ function VolatilitySkewContent({
       {calculatedSkewMetric !== null && (
         <div className="mb-4 flex flex-col items-center gap-3">
           {/* Badge */}
-          <div className="inline-flex items-center gap-2 bg-muted/80 px-4 py-2 rounded-full text-sm">
+          <div className="inline-flex items-center gap-2 bg-muted px-4 py-2 rounded-full text-sm border border-border">
             <span className="text-muted-foreground">Skew Metric (25Δ):</span>
-            <span className={`font-semibold ${calculatedSkewMetric > 0 ? 'text-red-500' : calculatedSkewMetric < 0 ? 'text-green-500' : 'text-foreground'}`}>
+            <span className={`font-semibold tabular-nums ${calculatedSkewMetric > 0 ? 'text-negative' : calculatedSkewMetric < 0 ? 'text-positive' : 'text-foreground'}`}>
               {formatSkew(calculatedSkewMetric)}
             </span>
           </div>
@@ -130,32 +130,31 @@ function VolatilitySkewContent({
           <div className="w-full max-w-md">
             {/* Labels */}
             <div className="flex justify-between text-xs mb-1">
-              <span className={`font-medium ${calculatedSkewMetric < 0 ? 'text-green-500' : 'text-muted-foreground'}`}>
+              <span className={`font-medium ${calculatedSkewMetric < 0 ? 'text-positive' : 'text-muted-foreground'}`}>
                 ← Calls Richer
               </span>
               <span className="text-muted-foreground">Balanced</span>
-              <span className={`font-medium ${calculatedSkewMetric > 0 ? 'text-red-500' : 'text-muted-foreground'}`}>
+              <span className={`font-medium ${calculatedSkewMetric > 0 ? 'text-negative' : 'text-muted-foreground'}`}>
                 Puts Richer →
               </span>
             </div>
 
             {/* Gauge Bar */}
-            <div className="relative h-3 rounded-full overflow-hidden bg-gradient-to-r from-green-500/30 via-gray-500/20 to-red-500/30">
+            <div className="relative h-3 rounded-full overflow-hidden bg-gradient-to-r from-positive/25 via-muted to-negative/25">
               {/* Center line */}
               <div className="absolute left-1/2 top-0 bottom-0 w-px bg-muted-foreground/50" />
 
               {/* Skew indicator - position based on skew_metric, clamped to -0.1 to +0.1 range */}
               <div
-                className="absolute top-0 bottom-0 w-1 rounded-full shadow-lg transition-all duration-300"
+                className="absolute top-0 bottom-0 w-1 rounded-full transition-all duration-300"
                 style={{
                   left: `${50 + Math.max(-50, Math.min(50, calculatedSkewMetric * 500))}%`,
                   transform: 'translateX(-50%)',
                   backgroundColor: calculatedSkewMetric > 0
-                    ? (isDark ? '#ef4444' : '#dc2626')
+                    ? (isDark ? '#f87171' : '#dc2626')
                     : calculatedSkewMetric < 0
-                      ? (isDark ? '#10b981' : '#059669')
-                      : (isDark ? '#9ca3af' : '#6b7280'),
-                  boxShadow: `0 0 8px ${calculatedSkewMetric > 0 ? 'rgba(239, 68, 68, 0.5)' : calculatedSkewMetric < 0 ? 'rgba(16, 185, 129, 0.5)' : 'rgba(156, 163, 175, 0.5)'}`,
+                      ? (isDark ? '#34d399' : '#059669')
+                      : '#8a8a8a',
                 }}
               />
             </div>
@@ -190,14 +189,14 @@ function VolatilitySkewContent({
             <div className="flex items-center gap-2">
               <div
                 className="w-4 h-0.5 rounded"
-                style={{ backgroundColor: isDark ? '#10b981' : '#059669' }}
+                style={{ backgroundColor: isDark ? '#34d399' : '#059669' }}
               />
               <span className="text-muted-foreground">Calls</span>
             </div>
             <div className="flex items-center gap-2">
               <div
                 className="w-4 h-0.5 rounded"
-                style={{ backgroundColor: isDark ? '#ef4444' : '#dc2626' }}
+                style={{ backgroundColor: isDark ? '#f87171' : '#dc2626' }}
               />
               <span className="text-muted-foreground">Puts</span>
             </div>
@@ -217,9 +216,9 @@ function VolatilitySkewContent({
               <div
                 className="w-6 h-0.5 rounded"
                 style={{
-                  backgroundColor: isDark ? '#6366f1' : '#4f46e5',
+                  backgroundColor: isDark ? '#60a5fa' : '#3b82f6',
                   borderStyle: 'dashed',
-                  backgroundImage: `linear-gradient(to right, ${isDark ? '#6366f1' : '#4f46e5'} 50%, transparent 50%)`,
+                  backgroundImage: `linear-gradient(to right, ${isDark ? '#60a5fa' : '#3b82f6'} 50%, transparent 50%)`,
                   backgroundSize: '8px 100%',
                 }}
               />

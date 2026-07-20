@@ -67,10 +67,10 @@ function GreeksChart({ portfolioGreeks }: GreeksChartProps) {
   const getValueColorClass = (value: number, greek: string): string => {
     if (greek === 'theta') {
       // For theta, positive is good (collecting premium)
-      return value > 0 ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400';
+      return value > 0 ? 'text-positive' : 'text-negative';
     } else if (greek === 'delta') {
       // Delta can be positive or negative based on strategy
-      return value > 0 ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400';
+      return value > 0 ? 'text-positive' : 'text-negative';
     }
     return 'text-foreground';
   };
@@ -81,15 +81,15 @@ function GreeksChart({ portfolioGreeks }: GreeksChartProps) {
     const size = 20;
 
     if (greek === 'delta') {
-      if (value > 0.2) return <ArrowUpRight size={size} className="text-green-600 dark:text-green-400" />;
-      if (value < -0.2) return <ArrowDownRight size={size} className="text-red-600 dark:text-red-400" />;
+      if (value > 0.2) return <ArrowUpRight size={size} className="text-positive" />;
+      if (value < -0.2) return <ArrowDownRight size={size} className="text-negative" />;
       return <Minus size={size} className="text-muted-foreground" />;
     } else if (greek === 'theta') {
-      if (value > 0) return <TrendingUp size={size} className="text-green-600 dark:text-green-400" />;
-      if (value < 0) return <TrendingDown size={size} className="text-red-600 dark:text-red-400" />;
+      if (value > 0) return <TrendingUp size={size} className="text-positive" />;
+      if (value < 0) return <TrendingDown size={size} className="text-negative" />;
       return <Minus size={size} className="text-muted-foreground" />;
     } else if (greek === 'gamma' || greek === 'vega') {
-      if (absValue > 0.1) return <TrendingUp size={size} className="text-blue-600 dark:text-blue-400" />;
+      if (absValue > 0.1) return <TrendingUp size={size} className="text-muted-foreground" />;
       return <Minus size={size} className="text-muted-foreground" />;
     }
     return <Minus size={size} className="text-muted-foreground" />;
@@ -120,7 +120,7 @@ function GreeksChart({ portfolioGreeks }: GreeksChartProps) {
 
   return (
     <div className="w-full space-y-4">
-      <h3 className="text-lg font-medium">Position Greeks</h3>
+      <h3 className="text-lg font-semibold tracking-tight">Position Greeks</h3>
 
       {/* Greeks Summary Cards */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
@@ -131,7 +131,7 @@ function GreeksChart({ portfolioGreeks }: GreeksChartProps) {
           return (
             <div
               key={key}
-              className="bg-card border rounded-lg p-4 hover:shadow-md transition-all hover:scale-[1.02] relative overflow-hidden"
+              className="bg-card border rounded-lg p-4 transition-colors hover:border-muted-foreground/40 relative overflow-hidden"
             >
               {/* Accent bar at top */}
               <div className="absolute top-0 left-0 right-0 h-1" style={{ backgroundColor: info.color }} />
@@ -150,7 +150,7 @@ function GreeksChart({ portfolioGreeks }: GreeksChartProps) {
                 {getTrendIcon(value, key)}
               </div>
 
-              <div className={`text-2xl font-bold mb-1 ${getValueColorClass(value, key)}`}>
+              <div className={`text-2xl font-bold tabular-nums mb-1 ${getValueColorClass(value, key)}`}>
                 {formatValue(value, key)}
               </div>
 
@@ -181,9 +181,9 @@ function GreeksChart({ portfolioGreeks }: GreeksChartProps) {
             <span className="font-medium">Directional Bias:</span>
             <span className="ml-2">
               {portfolioGreeks.delta > 0.1 ? (
-                <span className="text-green-600 dark:text-green-400">Bullish (Delta: {portfolioGreeks.delta.toFixed(2)})</span>
+                <span className="text-positive">Bullish (Delta: {portfolioGreeks.delta.toFixed(2)})</span>
               ) : portfolioGreeks.delta < -0.1 ? (
-                <span className="text-red-600 dark:text-red-400">Bearish (Delta: {portfolioGreeks.delta.toFixed(2)})</span>
+                <span className="text-negative">Bearish (Delta: {portfolioGreeks.delta.toFixed(2)})</span>
               ) : (
                 <span className="text-muted-foreground">Neutral (Delta: {portfolioGreeks.delta.toFixed(2)})</span>
               )}
@@ -193,11 +193,11 @@ function GreeksChart({ portfolioGreeks }: GreeksChartProps) {
             <span className="font-medium">Time Decay:</span>
             <span className="ml-2">
               {portfolioGreeks.theta > 0 ? (
-                <span className="text-green-600 dark:text-green-400">
+                <span className="text-positive">
                   Benefiting (+${portfolioGreeks.theta.toFixed(2)}/day)
                 </span>
               ) : (
-                <span className="text-red-600 dark:text-red-400">
+                <span className="text-negative">
                   Losing (${portfolioGreeks.theta.toFixed(2)}/day)
                 </span>
               )}
@@ -208,9 +208,9 @@ function GreeksChart({ portfolioGreeks }: GreeksChartProps) {
             <span className="ml-2">
               {Math.abs(portfolioGreeks.vega) > 0.1 ? (
                 portfolioGreeks.vega > 0 ? (
-                  <span className="text-blue-600 dark:text-blue-400">Long Vega (+{portfolioGreeks.vega.toFixed(2)})</span>
+                  <span className="text-primary">Long Vega (+{portfolioGreeks.vega.toFixed(2)})</span>
                 ) : (
-                  <span className="text-orange-600 dark:text-orange-400">Short Vega ({portfolioGreeks.vega.toFixed(2)})</span>
+                  <span className="text-foreground">Short Vega ({portfolioGreeks.vega.toFixed(2)})</span>
                 )
               ) : (
                 <span className="text-muted-foreground">Vega Neutral</span>
@@ -221,9 +221,9 @@ function GreeksChart({ portfolioGreeks }: GreeksChartProps) {
             <span className="font-medium">Gamma Exposure:</span>
             <span className="ml-2">
               {portfolioGreeks.gamma > 0 ? (
-                <span className="text-green-600 dark:text-green-400">Positive (Delta increases with price)</span>
+                <span className="text-positive">Positive (Delta increases with price)</span>
               ) : portfolioGreeks.gamma < 0 ? (
-                <span className="text-red-600 dark:text-red-400">Negative (Delta decreases with price)</span>
+                <span className="text-negative">Negative (Delta decreases with price)</span>
               ) : (
                 <span className="text-muted-foreground">Neutral</span>
               )}

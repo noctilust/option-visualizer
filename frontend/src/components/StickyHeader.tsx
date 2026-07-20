@@ -1,5 +1,4 @@
 import { useState, useEffect } from 'react';
-import { DollarSign } from 'lucide-react';
 
 interface StickyHeaderProps {
   symbol: string;
@@ -25,16 +24,13 @@ export default function StickyHeader({ symbol, currentPrice, show }: StickyHeade
   if (!isVisible || !symbol) return null;
 
   return (
-    <div className="md:hidden fixed top-0 left-0 right-0 z-40 bg-card/95 backdrop-blur-sm border-b border-border shadow-sm animate-in slide-in-from-top-2 duration-200">
+    <div className="md:hidden fixed top-0 left-0 right-0 z-40 bg-card/95 backdrop-blur-sm border-b border-border animate-in slide-in-from-top-2 duration-200">
       <div className="flex items-center justify-between px-4 py-2">
         <div className="flex items-center gap-2">
-          <span className="text-lg font-bold text-primary">{symbol}</span>
+          <span className="text-lg font-semibold text-foreground">{symbol}</span>
         </div>
         {currentPrice !== undefined && (
-          <div className="flex items-center gap-1.5">
-            <DollarSign className="w-4 h-4 text-emerald-500" />
-            <span className="font-semibold">${currentPrice.toFixed(2)}</span>
-          </div>
+          <span className="font-semibold tabular-nums">${currentPrice.toFixed(2)}</span>
         )}
       </div>
     </div>

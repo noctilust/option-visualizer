@@ -1,5 +1,4 @@
 import { Calendar } from 'lucide-react';
-import Button from './Button';
 
 interface DateSelectorProps {
   evalDaysFromNow: number | null;
@@ -50,17 +49,17 @@ export default function DateSelector({
   };
 
   return (
-    <div className="bg-muted/30 rounded-lg px-4 py-3 border">
+    <div className="bg-muted/40 rounded-lg px-4 py-3 border border-border">
       {/* Single row: Label + Current Value | Slider | Presets */}
       <div className="flex items-center gap-4">
         {/* Label and current value */}
         <div className="flex items-center gap-2 shrink-0">
-          <Calendar size={14} className="text-primary" />
+          <Calendar size={14} className="text-muted-foreground" />
           <span className="text-sm font-medium">P/L Date:</span>
-          <span className="text-sm font-semibold text-primary">
+          <span className="text-sm font-semibold tabular-nums text-foreground">
             {getDisplayText()}
           </span>
-          <span className="text-xs text-muted-foreground">
+          <span className="text-xs tabular-nums text-muted-foreground">
             ({getDatePreview()})
           </span>
         </div>
@@ -85,7 +84,7 @@ export default function DateSelector({
         </div>
 
         {/* Preset buttons */}
-        <div className="flex gap-1 shrink-0" role="group" aria-label="Date presets">
+        <div className="segmented shrink-0" role="group" aria-label="Date presets">
           {presets.map((preset) => {
             const isSelected = (preset.days === evalDaysFromNow) ||
               (preset.days === null && evalDaysFromNow === null);
@@ -96,16 +95,16 @@ export default function DateSelector({
                 : `Show P/L in ${preset.days} days`;
 
             return (
-              <Button
+              <button
                 key={preset.label}
-                variant={isSelected ? 'primary' : 'secondary'}
-                size="sm"
+                type="button"
+                className="segmented-item"
                 onClick={() => setEvalDaysFromNow(preset.days)}
                 aria-pressed={isSelected}
                 aria-label={ariaLabel}
               >
                 {preset.label}
-              </Button>
+              </button>
             );
           })}
         </div>

@@ -93,12 +93,12 @@ export default function PositionsTable({
           <h3 className="text-lg font-medium">Positions</h3>
           <div className="flex items-center gap-2">
             {longPositions > 0 && (
-              <span className="px-2 py-0.5 text-xs font-semibold rounded-full bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400">
+              <span className="px-2 py-0.5 text-xs font-semibold rounded-full bg-positive/10 text-positive">
                 {longPositions} Long
               </span>
             )}
             {shortPositions > 0 && (
-              <span className="px-2 py-0.5 text-xs font-semibold rounded-full bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-400">
+              <span className="px-2 py-0.5 text-xs font-semibold rounded-full bg-negative/10 text-negative">
                 {shortPositions} Short
               </span>
             )}
@@ -116,7 +116,7 @@ export default function PositionsTable({
       <div className="relative">
         {/* Mobile scroll indicator */}
         <div className="md:hidden absolute right-0 top-0 bottom-0 w-8 pointer-events-none bg-gradient-to-l from-card to-transparent z-10 rounded-r-lg" />
-        <div className="overflow-x-auto border rounded-lg shadow-sm scrollbar-thin">
+        <div className="overflow-x-auto border border-border rounded-lg scrollbar-thin">
           <table className="w-full text-sm text-left table-auto min-w-[640px]">
           <thead className="bg-muted/50 text-muted-foreground uppercase text-xs">
             <tr>
@@ -142,9 +142,9 @@ export default function PositionsTable({
               const isLong = pos.qty > 0;
               const isShort = pos.qty < 0;
               const rowColorClass = isLong
-                ? 'hover:bg-green-50/50 dark:hover:bg-green-950/20 border-l-2 border-l-green-500'
+                ? 'hover:bg-positive/5 border-l-2 border-l-positive'
                 : isShort
-                ? 'hover:bg-red-50/50 dark:hover:bg-red-950/20 border-l-2 border-l-red-500'
+                ? 'hover:bg-negative/5 border-l-2 border-l-negative'
                 : 'hover:bg-muted/50';
 
               return (
@@ -152,12 +152,12 @@ export default function PositionsTable({
                   <td className={cellPadding}>
                     <div className="flex items-center gap-2">
                       {isLong && (
-                        <span className="flex-shrink-0 w-5 h-5 rounded bg-green-100 dark:bg-green-900/30 flex items-center justify-center text-[10px] font-bold text-green-700 dark:text-green-400">
+                        <span className="flex-shrink-0 w-5 h-5 rounded bg-positive/10 flex items-center justify-center text-[10px] font-bold text-positive">
                           L
                         </span>
                       )}
                       {isShort && (
-                        <span className="flex-shrink-0 w-5 h-5 rounded bg-red-100 dark:bg-red-900/30 flex items-center justify-center text-[10px] font-bold text-red-700 dark:text-red-400">
+                        <span className="flex-shrink-0 w-5 h-5 rounded bg-negative/10 flex items-center justify-center text-[10px] font-bold text-negative">
                           S
                         </span>
                       )}
@@ -221,9 +221,7 @@ export default function PositionsTable({
                     <select
                       value={pos.type}
                       onChange={(e: ChangeEvent<HTMLSelectElement>) => handleChange(index, 'type', e.target.value as 'C' | 'P')}
-                      className={`w-full ${showGreeks ? 'px-1.5 py-0.5 text-sm' : 'px-2 py-1'} border rounded bg-background font-medium ${
-                        pos.type === 'C' ? 'text-blue-600 dark:text-blue-400' : 'text-orange-600 dark:text-orange-400'
-                      }`}
+                      className={`w-full ${showGreeks ? 'px-1.5 py-0.5 text-sm' : 'px-2 py-1'} border rounded bg-background font-medium text-foreground`}
                     >
                       <option value="C">Call</option>
                       <option value="P">Put</option>
@@ -243,7 +241,7 @@ export default function PositionsTable({
                   {showGreeks && (
                     <>
                       <td className={`${cellPadding} text-right font-mono text-xs whitespace-nowrap`}>
-                        <span className={greeks?.delta && greeks.delta > 0 ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'}>
+                        <span className={greeks?.delta && greeks.delta > 0 ? 'text-positive' : 'text-negative'}>
                           {formatGreek(greeks?.delta, 'delta')}
                         </span>
                       </td>
@@ -251,7 +249,7 @@ export default function PositionsTable({
                         {formatGreek(greeks?.gamma, 'gamma')}
                       </td>
                       <td className={`${cellPadding} text-right font-mono text-xs whitespace-nowrap`}>
-                        <span className={greeks?.theta && greeks.theta > 0 ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'}>
+                        <span className={greeks?.theta && greeks.theta > 0 ? 'text-positive' : 'text-negative'}>
                           {formatGreek(greeks?.theta, 'theta')}
                         </span>
                       </td>

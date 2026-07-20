@@ -262,10 +262,7 @@ export default function SymbolAutocomplete({
                     {result.name}
                   </span>
                 </div>
-                <span className={`text-xs px-2 py-0.5 rounded-full ${result.type === 'ETF'
-                  ? 'bg-purple-500/20 text-purple-500'
-                  : 'bg-blue-500/20 text-blue-500'
-                  }`}>
+                <span className="text-xs px-2 py-0.5 rounded-full border border-border bg-muted text-muted-foreground">
                   {result.type}
                 </span>
               </li>

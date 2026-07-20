@@ -79,21 +79,17 @@ export default function UploadSection({ onFileSelect, onManualEntry, resetKey, l
   if (mode === null) {
     return (
       <div className="w-full max-w-2xl mx-auto">
-        <div className="flex flex-col sm:flex-row gap-6 items-stretch">
+        <div className="flex flex-col sm:flex-row gap-4 items-stretch">
           {/* Manual Entry Option */}
           <button
             onClick={handleManualClick}
-            className="flex-1 group relative overflow-hidden rounded-2xl bg-gradient-to-br from-card to-card/80 border border-border/50 hover:border-primary/50 transition-all duration-300 hover:shadow-lg hover:shadow-primary/10 hover:-translate-y-1"
+            className="flex-1 group rounded-lg border border-border bg-card hover:border-foreground/25 hover:bg-muted/40 transition-colors"
           >
-            <div className="absolute inset-0 bg-gradient-to-br from-primary/5 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300" />
-            <div className="relative flex flex-col items-center justify-center p-5">
-              <div className="relative mb-3">
-                <div className="absolute inset-0 bg-primary/20 rounded-xl blur-lg group-hover:bg-primary/30 transition-colors duration-300" />
-                <div className="relative p-3 bg-gradient-to-br from-primary/20 to-primary/10 rounded-xl border border-primary/20 group-hover:border-primary/40 transition-colors duration-300">
-                  <PenLine className="w-6 h-6 text-primary" />
-                </div>
+            <div className="flex flex-col items-center justify-center p-5">
+              <div className="mb-3 p-3 rounded-lg border border-border bg-muted text-muted-foreground group-hover:text-foreground transition-colors">
+                <PenLine className="w-5 h-5" />
               </div>
-              <h3 className="text-base font-semibold text-foreground mb-1 group-hover:text-primary transition-colors duration-300">Build Strategy</h3>
+              <h3 className="text-base font-semibold text-foreground mb-1">Build Strategy</h3>
               <p className="text-xs text-muted-foreground text-center">
                 Add positions one by one
               </p>
@@ -102,25 +98,21 @@ export default function UploadSection({ onFileSelect, onManualEntry, resetKey, l
 
           {/* Divider */}
           <div className="flex sm:flex-col items-center justify-center">
-            <div className="flex-1 h-px sm:h-auto sm:w-px bg-gradient-to-r sm:bg-gradient-to-b from-transparent via-border to-transparent"></div>
-            <span className="px-4 py-2 text-xs text-muted-foreground/60 font-medium uppercase tracking-wider">or</span>
-            <div className="flex-1 h-px sm:h-auto sm:w-px bg-gradient-to-r sm:bg-gradient-to-b from-transparent via-border to-transparent"></div>
+            <div className="flex-1 h-px sm:h-auto sm:w-px bg-border"></div>
+            <span className="px-4 py-2 text-xs text-muted-foreground font-medium uppercase tracking-wider">or</span>
+            <div className="flex-1 h-px sm:h-auto sm:w-px bg-border"></div>
           </div>
 
           {/* Upload Screenshot Option */}
           <button
             onClick={handleUploadClick}
-            className="flex-1 group relative overflow-hidden rounded-2xl bg-gradient-to-br from-card to-card/80 border border-border/50 hover:border-blue-500/50 transition-all duration-300 hover:shadow-lg hover:shadow-blue-500/10 hover:-translate-y-1"
+            className="flex-1 group rounded-lg border border-border bg-card hover:border-foreground/25 hover:bg-muted/40 transition-colors"
           >
-            <div className="absolute inset-0 bg-gradient-to-br from-blue-500/5 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300" />
-            <div className="relative flex flex-col items-center justify-center p-5">
-              <div className="relative mb-3">
-                <div className="absolute inset-0 bg-blue-500/20 rounded-xl blur-lg group-hover:bg-blue-500/30 transition-colors duration-300" />
-                <div className="relative p-3 bg-gradient-to-br from-blue-500/20 to-blue-500/10 rounded-xl border border-blue-500/20 group-hover:border-blue-500/40 transition-colors duration-300">
-                  <Upload className="w-6 h-6 text-blue-500" />
-                </div>
+            <div className="flex flex-col items-center justify-center p-5">
+              <div className="mb-3 p-3 rounded-lg border border-border bg-muted text-muted-foreground group-hover:text-foreground transition-colors">
+                <Upload className="w-5 h-5" />
               </div>
-              <h3 className="text-base font-semibold text-foreground mb-1 group-hover:text-blue-500 transition-colors duration-300">Upload Screenshot</h3>
+              <h3 className="text-base font-semibold text-foreground mb-1">Upload Screenshot</h3>
               <p className="text-xs text-muted-foreground text-center">
                 PNG, JPG or GIF of your positions
               </p>
@@ -139,7 +131,7 @@ export default function UploadSection({ onFileSelect, onManualEntry, resetKey, l
           {!selectedFile ? (
             <>
               <label
-                className={`flex flex-col items-center justify-center w-full h-56 border-2 border-dashed rounded-lg cursor-pointer bg-card hover:bg-accent/50 transition-colors duration-200 ${dragActive ? "border-primary bg-accent/50" : "border-border"
+                className={`flex flex-col items-center justify-center w-full h-56 border border-dashed rounded-lg cursor-pointer bg-card hover:bg-muted/40 transition-colors duration-200 ${dragActive ? "border-primary bg-muted/40" : "border-border"
                   }`}
                 onDragEnter={handleDrag}
                 onDragLeave={handleDrag}
@@ -173,15 +165,15 @@ export default function UploadSection({ onFileSelect, onManualEntry, resetKey, l
               </button>
             </>
           ) : (
-            <div className="w-full p-4 border rounded-lg bg-card flex items-center justify-between shadow-sm">
+            <div className="w-full p-4 border border-border rounded-lg bg-card flex items-center justify-between">
               <div className="flex items-center space-x-3">
                 {loading ? (
-                  <div className="p-1.5 bg-primary/10 rounded-full">
+                  <div className="p-1.5 bg-muted rounded-full">
                     <Loader2 className="w-5 h-5 text-primary animate-spin" />
                   </div>
                 ) : (
-                  <div className="p-1.5 bg-primary/10 rounded-full">
-                    <File className="w-5 h-5 text-primary" />
+                  <div className="p-1.5 bg-muted rounded-full">
+                    <File className="w-5 h-5 text-muted-foreground" />
                   </div>
                 )}
                 <div>
@@ -211,9 +203,8 @@ export default function UploadSection({ onFileSelect, onManualEntry, resetKey, l
   // Manual mode - just show a confirmation message (positions table is shown in App)
   return (
     <div className="w-full max-w-xl mx-auto">
-      <div className="relative overflow-hidden rounded-xl bg-gradient-to-r from-primary/5 via-primary/10 to-primary/5 border border-primary/20">
-        <div className="absolute inset-0 bg-gradient-to-r from-transparent via-primary/5 to-transparent animate-pulse" />
-        <div className="relative flex items-center justify-between px-5 py-3">
+      <div className="rounded-lg border border-border bg-muted/40">
+        <div className="flex items-center justify-between px-5 py-3">
           <button
             onClick={handleBack}
             className="text-xs text-muted-foreground hover:text-foreground transition-colors"
@@ -221,13 +212,11 @@ export default function UploadSection({ onFileSelect, onManualEntry, resetKey, l
             &larr; Back
           </button>
           <div className="flex items-center gap-3">
-            <div className="p-2 bg-primary/15 rounded-lg border border-primary/25">
-              <PenLine className="w-4 h-4 text-primary" />
-            </div>
+            <PenLine className="w-4 h-4 text-muted-foreground" />
             <span className="text-sm font-medium text-foreground">Manual entry mode</span>
-            <div className="flex items-center gap-1">
-              <div className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
-              <span className="text-xs text-emerald-500 font-medium">Active</span>
+            <div className="flex items-center gap-1.5">
+              <div className="w-1.5 h-1.5 rounded-full bg-primary" />
+              <span className="text-xs text-primary font-medium">Active</span>
             </div>
           </div>
           <div className="w-12" /> {/* Spacer for centering */}

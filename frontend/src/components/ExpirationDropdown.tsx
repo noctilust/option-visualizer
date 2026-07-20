@@ -11,7 +11,8 @@ interface ExpirationOption {
 interface ExpirationDropdownProps {
   value: string;
   onChange: (value: string) => void;
-  isDark: boolean;
+  /** Kept for API compatibility; theming now flows through CSS tokens */
+  isDark?: boolean;
   symbol?: string;
   compact?: boolean;
   /**
@@ -170,7 +171,6 @@ function isoToPosition(iso: string): string {
 export default function ExpirationDropdown({
   value,
   onChange,
-  isDark,
   compact = false,
   symbol = '',
   valueFormat = 'iso'
@@ -305,14 +305,9 @@ export default function ExpirationDropdown({
       <button
         ref={buttonRef}
         onClick={() => setIsOpen(!isOpen)}
-        className={`border rounded bg-background cursor-pointer focus:outline-none focus:ring-2 focus:ring-primary flex items-center justify-between whitespace-nowrap ${
+        className={`border border-border rounded bg-background text-foreground cursor-pointer focus:outline-none focus:ring-2 focus:ring-primary flex items-center justify-between whitespace-nowrap ${
           compact ? 'px-1.5 py-0.5 text-xs w-20' : 'px-2 py-1 text-sm w-[155px]'
         }`}
-        style={{
-          borderColor: isDark ? '#404040' : '#e5e7eb',
-          color: isDark ? '#e5e5e5' : '#1f2937',
-          backgroundColor: isDark ? '#1f2937' : '#ffffff',
-        }}
       >
         <span className="flex items-center gap-1.5">
           {currentOption ? (
@@ -321,12 +316,8 @@ export default function ExpirationDropdown({
               {!compact && ` • ${currentOption.daysToExpiration}d`}
               {currentOption.isWeekly && (
                 <span
-                  className="ml-2.5 px-1 py-0 rounded text-[10px] font-bold"
-                  style={{
-                    backgroundColor: '#f97316',
-                    color: '#ffffff',
-                    lineHeight: '1.4',
-                  }}
+                  className="ml-2.5 px-1 py-0 rounded text-[10px] font-bold bg-muted text-muted-foreground border border-border"
+                  style={{ lineHeight: '1.4' }}
                 >
                   W
                 </span>
@@ -358,10 +349,8 @@ export default function ExpirationDropdown({
       {isOpen && (
         <div
           ref={dropdownRef}
-          className="fixed z-50 rounded border shadow-lg overflow-auto"
+          className="fixed z-50 rounded border border-border bg-popover shadow-lg overflow-auto"
           style={{
-            borderColor: isDark ? '#404040' : '#e5e7eb',
-            backgroundColor: isDark ? '#1f2937' : '#ffffff',
             maxHeight: '400px',
             width: '160px',
             top: `${dropdownPosition.top + 4}px`,
@@ -369,13 +358,7 @@ export default function ExpirationDropdown({
           }}
         >
           {/* Header */}
-          <div
-            className="px-2 py-1.5 text-xs font-medium border-b"
-            style={{
-              borderColor: isDark ? '#404040' : '#e5e7eb',
-              color: isDark ? '#9ca3af' : '#6b7280',
-            }}
-          >
+          <div className="px-2 py-1.5 text-xs font-medium border-b border-border text-muted-foreground">
             {apiLoading ? 'Loading...' : 'Select Expirations'}
           </div>
 
@@ -386,27 +369,9 @@ export default function ExpirationDropdown({
               <div
                 key={opt.value}
                 onClick={() => handleSelect(opt.value)}
-                className="px-2 py-1.5 cursor-pointer flex items-center gap-2 hover:bg-opacity-10"
-                style={{
-                  backgroundColor: isSelected
-                    ? isDark
-                      ? 'rgba(59, 130, 246, 0.3)'
-                      : 'rgba(59, 130, 246, 0.2)'
-                    : 'transparent',
-                  color: isDark ? '#e5e5e5' : '#1f2937',
-                }}
-                onMouseEnter={(e) => {
-                  if (!isSelected) {
-                    e.currentTarget.style.backgroundColor = isDark
-                      ? 'rgba(255, 255, 255, 0.05)'
-                      : 'rgba(0, 0, 0, 0.05)';
-                  }
-                }}
-                onMouseLeave={(e) => {
-                  if (!isSelected) {
-                    e.currentTarget.style.backgroundColor = 'transparent';
-                  }
-                }}
+                className={`px-2 py-1.5 cursor-pointer flex items-center gap-2 text-popover-foreground transition-colors ${
+                  isSelected ? 'bg-primary/15' : 'hover:bg-muted'
+                }`}
               >
                 {isSelected && (
                   <svg width="14" height="14" viewBox="0 0 16 16" fill="none" className="flex-shrink-0">
@@ -425,12 +390,8 @@ export default function ExpirationDropdown({
                 </span>
                 {opt.isWeekly && (
                   <span
-                    className="px-1.5 py-0 rounded text-xs font-bold flex-shrink-0 ml-auto"
-                    style={{
-                      backgroundColor: '#f97316',
-                      color: '#ffffff',
-                      lineHeight: '1.4',
-                    }}
+                    className="px-1.5 py-0 rounded text-xs font-bold flex-shrink-0 ml-auto bg-muted text-muted-foreground border border-border"
+                    style={{ lineHeight: '1.4' }}
                   >
                     W
                   </span>

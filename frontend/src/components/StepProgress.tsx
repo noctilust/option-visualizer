@@ -17,21 +17,21 @@ export default function StepProgress({ steps }: StepProgressProps) {
 
           return (
             <li key={stepNumber} className="flex min-w-0 flex-1 items-start last:flex-none">
-              <div className="flex min-w-8 flex-col items-center gap-1">
+              <div className="flex min-w-8 flex-col items-center gap-1.5">
                 <div
                   className={`
-                    flex h-8 w-8 items-center justify-center rounded-full text-sm font-medium transition-all
+                    flex h-6 w-6 items-center justify-center rounded-full text-xs font-medium tabular-nums transition-colors
                     ${isCompleted
-                      ? 'bg-emerald-500 text-white'
+                      ? 'bg-foreground text-background'
                       : isCurrent
-                        ? 'bg-primary text-primary-foreground ring-2 ring-primary/30 ring-offset-2 ring-offset-background'
-                        : 'bg-muted text-muted-foreground'
+                        ? 'border border-primary text-primary ring-2 ring-primary/20'
+                        : 'border border-border text-muted-foreground'
                     }
                   `}
                   aria-current={isCurrent ? 'step' : undefined}
                 >
                   {isCompleted ? (
-                    <Check className="w-4 h-4" aria-hidden="true" />
+                    <Check className="w-3 h-3" aria-hidden="true" />
                   ) : (
                     stepNumber
                   )}
@@ -44,8 +44,8 @@ export default function StepProgress({ steps }: StepProgressProps) {
               {/* Connector line */}
               {index < steps.length - 1 && (
                 <div
-                  className={`mt-4 h-0.5 min-w-4 flex-1 mx-1 md:mx-2 transition-colors ${
-                    step.completed ? 'bg-emerald-500' : 'bg-muted'
+                  className={`mt-3 h-px min-w-4 flex-1 mx-1 md:mx-2 transition-colors ${
+                    step.completed ? 'bg-foreground/40' : 'bg-border'
                   }`}
                   aria-hidden="true"
                 />

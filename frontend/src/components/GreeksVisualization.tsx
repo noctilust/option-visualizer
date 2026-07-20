@@ -112,8 +112,8 @@ export default function GreeksVisualization({ chartData, marketData }: GreeksVis
           <button
             key={key}
             onClick={() => toggleGreek(key)}
-            className={`px-4 py-2 rounded-lg border-2 transition-all font-medium text-sm ${selectedGreeks[key]
-              ? 'border-current shadow-md scale-105'
+            className={`px-4 py-2 rounded-lg border transition-colors font-medium text-sm ${selectedGreeks[key]
+              ? 'border-current'
               : 'border-border hover:border-current opacity-60 hover:opacity-100'
               }`}
             style={{
@@ -140,37 +140,37 @@ export default function GreeksVisualization({ chartData, marketData }: GreeksVis
               data={chartData}
               margin={{ top: 10, right: 10, left: 10, bottom: 20 }}
             >
-              <CartesianGrid strokeDasharray="3 3" opacity={0.1} />
+              <CartesianGrid strokeDasharray="3 3" stroke="#8a8a8a" opacity={0.2} />
               <XAxis
                 dataKey="price"
                 type="number"
                 domain={['dataMin', 'dataMax']}
                 tickFormatter={(value) => `$${Math.round(value)}`}
-                tick={{ fontSize: 10, fill: '#9ca3af' }}
-                axisLine={{ stroke: '#525252' }}
-                tickLine={{ stroke: '#525252' }}
+                tick={{ fontSize: 10, fill: '#8a8a8a' }}
+                axisLine={{ stroke: '#8a8a8a', opacity: 0.4 }}
+                tickLine={{ stroke: '#8a8a8a', opacity: 0.4 }}
               />
               <YAxis
-                tick={{ fontSize: 10, fill: '#9ca3af' }}
-                axisLine={{ stroke: '#525252' }}
-                tickLine={{ stroke: '#525252' }}
+                tick={{ fontSize: 10, fill: '#8a8a8a' }}
+                axisLine={{ stroke: '#8a8a8a', opacity: 0.4 }}
+                tickLine={{ stroke: '#8a8a8a', opacity: 0.4 }}
                 width={40}
               />
               <Tooltip
-                cursor={{ stroke: '#9ca3af', strokeWidth: 1, strokeDasharray: '4 4' }}
+                cursor={{ stroke: '#8a8a8a', strokeWidth: 1, strokeDasharray: '4 4' }}
                 isAnimationActive={false}
                 content={({ active, payload, label }) => {
                   if (active && payload && payload.length) {
                     return (
-                      <div className="bg-[#262626] border border-[#404040] text-[#e5e5e5] rounded-lg p-3 shadow-lg">
+                      <div className="bg-popover border border-border text-popover-foreground rounded-lg p-3 shadow-lg">
                         <div className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1 text-sm">
-                          <span className="text-gray-400">Price:</span>
+                          <span className="text-muted-foreground">Price:</span>
                           <span className="text-right font-medium">
                             ${Number.isInteger(label) ? label : (label as number).toFixed(2)}
                           </span>
                           {payload.map((entry, index) => (
                             <Fragment key={index}>
-                              <span className="text-gray-400">{entry.name}:</span>
+                              <span className="text-muted-foreground">{entry.name}:</span>
                               <span
                                 className="text-right font-medium"
                                 style={{ color: entry.color }}
@@ -194,24 +194,24 @@ export default function GreeksVisualization({ chartData, marketData }: GreeksVis
                 <>
                   <ReferenceLine
                     x={currentPrice}
-                    stroke="#10b981"
+                    stroke="#3b82f6"
                     strokeWidth={1}
                     strokeDasharray="4 2"
                     label={{
                       value: `$${currentPrice.toFixed(2)}`,
                       position: 'insideBottomLeft',
-                      fill: '#10b981',
+                      fill: '#3b82f6',
                       fontSize: 11,
                       fontWeight: 600,
                       dy: -5
                     }}
                   />
-                  {/* Green dot on x-axis */}
+                  {/* Accent dot on x-axis */}
                   <ReferenceDot
                     x={currentPrice}
                     y={0}
                     r={3}
-                    fill="#10b981"
+                    fill="#3b82f6"
                     stroke="#fff"
                     strokeWidth={2}
                   />
@@ -274,8 +274,8 @@ export default function GreeksVisualization({ chartData, marketData }: GreeksVis
           {currentPrice && (
             <div className="mt-2 flex items-center justify-center gap-2 text-xs">
               <span className="inline-flex items-center gap-1.5">
-                <span className="w-2 h-2 rounded-full bg-emerald-500"></span>
-                <span className="text-emerald-500 font-semibold">${currentPrice.toFixed(2)}</span>
+                <span className="w-2 h-2 rounded-full bg-primary"></span>
+                <span className="text-primary font-semibold">${currentPrice.toFixed(2)}</span>
               </span>
               <span className="text-muted-foreground">Current Price</span>
             </div>

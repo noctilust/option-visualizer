@@ -1,4 +1,5 @@
 import { Loader2 } from 'lucide-react';
+import SectionCard from './SectionCard';
 
 type AddPositionsStatus = 'waiting' | 'loading' | 'error';
 
@@ -9,9 +10,7 @@ interface AddPositionsPlaceholderProps {
 
 export default function AddPositionsPlaceholder({ status, symbol }: AddPositionsPlaceholderProps) {
   return (
-    <div className="quiet-panel p-4 md:p-5">
-      <p className="section-kicker mb-2">2. Add Positions</p>
-      <h2 className="text-xl font-semibold mb-2 text-muted-foreground">Capture the legs</h2>
+    <SectionCard step={2} label="Add Positions" title="Capture the legs" quiet>
       {status === 'loading' ? (
         <div className="flex items-center gap-3">
           <Loader2 className="h-5 w-5 animate-spin text-primary" />
@@ -24,6 +23,6 @@ export default function AddPositionsPlaceholder({ status, symbol }: AddPositions
             : `Unable to fetch market data for "${symbol}". Please try a different symbol.`}
         </p>
       )}
-    </div>
+    </SectionCard>
   );
 }

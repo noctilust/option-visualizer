@@ -82,15 +82,15 @@ export default function SkewChart({ data, isDark }: SkewChartProps) {
   }, [chartData]);
 
   const colors = {
-    callLine: isDark ? '#10b981' : '#059669',    // green
-    putLine: isDark ? '#ef4444' : '#dc2626',     // red
-    currentPriceLine: isDark ? '#6366f1' : '#4f46e5', // indigo
+    callLine: isDark ? '#34d399' : '#059669',    // green (positive token)
+    putLine: isDark ? '#f87171' : '#dc2626',     // red (negative token)
+    currentPriceLine: isDark ? '#60a5fa' : '#3b82f6', // blue accent
     atmMarker: isDark ? '#f59e0b' : '#d97706',   // amber
-    grid: isDark ? '#404040' : '#e5e7eb',
-    text: isDark ? '#9ca3af' : '#6b7280',
+    grid: isDark ? '#3a3a3a' : '#e4e4e4',
+    text: '#8a8a8a',
     tooltipBg: isDark ? '#262626' : '#ffffff',
-    tooltipBorder: isDark ? '#404040' : '#e5e7eb',
-    tooltipText: isDark ? '#e5e5e5' : '#1f2937',
+    tooltipBorder: isDark ? '#3a3a3a' : '#e4e4e4',
+    tooltipText: isDark ? '#e5e5e5' : '#171717',
   };
 
   return (
@@ -289,7 +289,7 @@ export default function SkewChart({ data, isDark }: SkewChartProps) {
             type="monotone"
             dataKey="callIV"
             stroke={colors.callLine}
-            strokeWidth={2.5}
+            strokeWidth={2}
             dot={false}
             activeDot={{ r: 4, stroke: isDark ? '#fff' : '#fff', strokeWidth: 2 }}
             connectNulls={false}
@@ -301,7 +301,7 @@ export default function SkewChart({ data, isDark }: SkewChartProps) {
             type="monotone"
             dataKey="putIV"
             stroke={colors.putLine}
-            strokeWidth={2.5}
+            strokeWidth={2}
             dot={false}
             activeDot={{ r: 4, stroke: isDark ? '#fff' : '#fff', strokeWidth: 2 }}
             connectNulls={false}

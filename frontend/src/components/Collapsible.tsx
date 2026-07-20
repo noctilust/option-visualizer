@@ -60,7 +60,7 @@ export default function Collapsible({
       <div className={className}>
         <div className="flex items-center gap-2 mb-4">
           {icon}
-          <h3 className="text-lg font-medium">{title}</h3>
+          <h3 className="text-lg font-semibold tracking-tight">{title}</h3>
         </div>
         {children}
       </div>
@@ -83,7 +83,7 @@ export default function Collapsible({
       >
         <div className="flex items-center gap-2">
           {icon}
-          <h3 className="text-lg font-medium">{title}</h3>
+          <h3 className="text-lg font-semibold tracking-tight">{title}</h3>
         </div>
         {isCollapsible && (
           <ChevronDown

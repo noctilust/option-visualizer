@@ -1,7 +1,6 @@
 import { useRef } from 'react';
 import { DollarSign } from 'lucide-react';
 import HelpTooltip from './HelpTooltip';
-import Button from './Button';
 
 interface InputSectionProps {
   credit: string;
@@ -14,12 +13,12 @@ export default function InputSection({ credit, setCredit, isDebit, setIsDebit }:
   const ignoreMouseUp = useRef(false);
 
   return (
-    <div className="bg-muted/30 rounded-lg px-4 py-3 border">
+    <div className="bg-muted/40 rounded-lg px-4 py-3 border border-border">
       {/* Single row: Label | Input | Credit/Debit toggle */}
       <div className="flex items-center gap-4">
         {/* Label - fixed width to prevent input field shifting */}
         <div className="flex items-center gap-2 shrink-0 w-[160px]">
-          <DollarSign size={14} className={isDebit ? 'text-red-500' : 'text-emerald-500'} />
+          <DollarSign size={14} className="text-muted-foreground" />
           <HelpTooltip term={isDebit ? 'debit' : 'credit'}>
             <span className="text-sm font-medium whitespace-nowrap">
               {isDebit ? 'Debit Paid:' : 'Credit Received:'}
@@ -37,10 +36,7 @@ export default function InputSection({ credit, setCredit, isDebit, setIsDebit }:
               type="number"
               name="credit"
               id="credit"
-              className={`block w-full pl-6 pr-3 py-1.5 text-sm rounded-md bg-card text-foreground transition-all duration-200 border ${isDebit
-                ? 'border-red-500/50 focus:border-red-500 focus:ring-1 focus:ring-red-500/30'
-                : 'border-emerald-500/50 focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500/30'
-                } focus:outline-none`}
+              className={`block w-full pl-6 pr-3 py-1.5 text-sm tabular-nums rounded-md bg-card border border-input transition-colors duration-200 focus:outline-none ${isDebit ? 'text-negative' : 'text-positive'}`}
               placeholder="0.00"
               value={credit}
               onChange={(e) => setCredit(e.target.value)}
@@ -58,28 +54,26 @@ export default function InputSection({ credit, setCredit, isDebit, setIsDebit }:
           </div>
         </div>
 
-        {/* Credit/Debit toggle buttons */}
-        <div className="flex gap-1 shrink-0" role="group" aria-label="Position type">
-          <Button
-            variant={!isDebit ? 'primary' : 'secondary'}
-            size="sm"
+        {/* Credit/Debit toggle */}
+        <div className="segmented shrink-0" role="group" aria-label="Position type">
+          <button
+            type="button"
+            className="segmented-item"
             onClick={() => setIsDebit(false)}
-            className={`${!isDebit ? 'bg-emerald-500 hover:bg-emerald-500/90' : ''}`}
             aria-pressed={!isDebit}
             aria-label="Credit received - money collected when opening position"
           >
             Credit
-          </Button>
-          <Button
-            variant={isDebit ? 'primary' : 'secondary'}
-            size="sm"
+          </button>
+          <button
+            type="button"
+            className="segmented-item"
             onClick={() => setIsDebit(true)}
-            className={`${isDebit ? '!bg-red-500 hover:!bg-red-500/90' : ''}`}
             aria-pressed={isDebit}
             aria-label="Debit paid - money spent when opening position"
           >
             Debit
-          </Button>
+          </button>
         </div>
       </div>
     </div>

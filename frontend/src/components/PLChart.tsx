@@ -52,6 +52,19 @@ export default function PLChart({
   evalDaysFromNow,
   precomputedDates,
 }: PLChartProps) {
+  // Theme-aware chart palette aligned with the neutral design tokens
+  // (SVG attributes can't resolve CSS vars, so hex values are used here)
+  const chartColors = useMemo(() => ({
+    grid: isDark ? '#3a3a3a' : '#e4e4e4',
+    gridDashed: isDark ? '#525252' : '#a3a3a3',
+    axis: isDark ? '#3a3a3a' : '#d4d4d4',
+    zero: isDark ? '#e5e5e5' : '#171717',
+    label: isDark ? '#a3a3a3' : '#737373',
+    positive: isDark ? '#34d399' : '#059669',
+    negative: isDark ? '#f87171' : '#dc2626',
+    accent: isDark ? '#60a5fa' : '#3b82f6',
+  }), [isDark]);
+
   // Calculate breakeven points
   const breakevenPoints = useMemo((): BreakevenPoint[] => {
     if (!chartData.length) return [];
@@ -212,16 +225,16 @@ export default function PLChart({
         {/* Max Profit/Loss */}
         <div className="flex items-center gap-4 md:gap-6">
           <div className="flex items-center gap-1.5 md:gap-2">
-            <TrendingUp className="w-4 h-4 text-emerald-500" aria-hidden="true" />
+            <TrendingUp className="w-4 h-4 text-positive" aria-hidden="true" />
             <span className="text-xs md:text-sm text-muted-foreground">Max Profit:</span>
-            <span className={`text-sm md:text-base font-semibold ${maxProfit > 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-muted-foreground'}`}>
+            <span className={`text-sm md:text-base font-semibold tabular-nums ${maxProfit > 0 ? 'text-positive' : 'text-muted-foreground'}`}>
               {maxProfit === Infinity ? 'Unlimited' : `$${Math.round(maxProfit).toLocaleString()}`}
             </span>
           </div>
           <div className="flex items-center gap-1.5 md:gap-2">
-            <TrendingDown className="w-4 h-4 text-red-500" aria-hidden="true" />
+            <TrendingDown className="w-4 h-4 text-negative" aria-hidden="true" />
             <span className="text-xs md:text-sm text-muted-foreground">Max Loss:</span>
-            <span className={`text-sm md:text-base font-semibold ${maxLoss < 0 ? 'text-red-600 dark:text-red-400' : 'text-muted-foreground'}`}>
+            <span className={`text-sm md:text-base font-semibold tabular-nums ${maxLoss < 0 ? 'text-negative' : 'text-muted-foreground'}`}>
               {maxLoss === -Infinity ? 'Unlimited' : `$${Math.round(maxLoss).toLocaleString()}`}
             </span>
           </div>
@@ -230,16 +243,16 @@ export default function PLChart({
         {/* Legend - Hidden on mobile, shown on md+ */}
         <div className="hidden md:flex flex-wrap items-center gap-4 text-xs">
           <div className="flex items-center gap-1.5">
-            <div className="w-4 h-0.5 bg-emerald-500 rounded" />
+            <div className="w-4 h-0.5 bg-positive rounded" />
             <span className="text-muted-foreground">Profit Zone</span>
           </div>
           <div className="flex items-center gap-1.5">
-            <div className="w-4 h-0.5 bg-red-500 rounded" />
+            <div className="w-4 h-0.5 bg-negative rounded" />
             <span className="text-muted-foreground">Loss Zone</span>
           </div>
           {hasPLAtDate && (
             <div className="flex items-center gap-1.5">
-              <div className="w-4 h-0.5 bg-blue-500 rounded" style={{ backgroundImage: 'repeating-linear-gradient(90deg, currentColor, currentColor 3px, transparent 3px, transparent 6px)' }} />
+              <div className="w-4 h-0.5 bg-primary rounded" style={{ backgroundImage: 'repeating-linear-gradient(90deg, currentColor, currentColor 3px, transparent 3px, transparent 6px)' }} />
               <span className="text-muted-foreground">P/L Today</span>
             </div>
           )}
@@ -248,7 +261,7 @@ export default function PLChart({
             <span className="text-muted-foreground">Breakeven</span>
           </div>
           <div className="flex items-center gap-1.5">
-            <div className="w-3 h-3 rounded-full bg-emerald-500 border-2 border-white dark:border-gray-800" />
+            <div className="w-3 h-3 rounded-full bg-primary border-2 border-card" />
             <span className="text-muted-foreground">Current Price</span>
           </div>
         </div>
@@ -257,11 +270,11 @@ export default function PLChart({
       {/* Compact legend for mobile */}
       <div className="flex md:hidden flex-wrap items-center justify-center gap-3 mb-3 text-[10px]">
         <div className="flex items-center gap-1">
-          <div className="w-3 h-0.5 bg-emerald-500 rounded" />
+          <div className="w-3 h-0.5 bg-positive rounded" />
           <span className="text-muted-foreground">Profit</span>
         </div>
         <div className="flex items-center gap-1">
-          <div className="w-3 h-0.5 bg-red-500 rounded" />
+          <div className="w-3 h-0.5 bg-negative rounded" />
           <span className="text-muted-foreground">Loss</span>
         </div>
         <div className="flex items-center gap-1">
@@ -269,7 +282,7 @@ export default function PLChart({
           <span className="text-muted-foreground">BE</span>
         </div>
         <div className="flex items-center gap-1">
-          <div className="w-2.5 h-2.5 rounded-full bg-emerald-500" />
+          <div className="w-2.5 h-2.5 rounded-full bg-primary" />
           <span className="text-muted-foreground">Current</span>
         </div>
       </div>
@@ -288,7 +301,7 @@ export default function PLChart({
             data={visibleChartData}
             margin={{ top: 20, right: 0, left: 0, bottom: 10 }}
           >
-            <CartesianGrid stroke={isDark ? '#525252' : '#e5e7eb'} vertical={false} />
+            <CartesianGrid stroke={chartColors.grid} vertical={false} />
 
             
             {/* Vertical grid lines at even prices with lighter gray */}
@@ -296,7 +309,7 @@ export default function PLChart({
               <ReferenceLine
                 key={`grid-${index}`}
                 x={tick}
-                stroke={isDark ? '#6b7280' : '#9ca3af'}
+                stroke={chartColors.gridDashed}
                 strokeDasharray="3 3"
                 strokeOpacity={0.4}
               />
@@ -307,13 +320,13 @@ export default function PLChart({
               domain={['dataMin', 'dataMax']}
               ticks={xAxisTicks}
               allowDecimals={false}
-              stroke={isDark ? '#6b7280' : '#9ca3af'}
+              stroke={chartColors.gridDashed}
               tick={false}
-              axisLine={{ stroke: isDark ? '#525252' : '#d1d5db' }}
-              tickLine={{ stroke: isDark ? '#525252' : '#d1d5db' }}
+              axisLine={{ stroke: chartColors.axis }}
+              tickLine={{ stroke: chartColors.axis }}
             />
             <YAxis
-              stroke={isDark ? '#6b7280' : '#9ca3af'}
+              stroke={chartColors.gridDashed}
               tick={false}
               width={0}
               domain={yAxisDomain}
@@ -351,8 +364,8 @@ export default function PLChart({
                         {/* Show P/L at selected date if available */}
                         {plAtDateValue !== undefined && dateLabel && (
                           <>
-                            <span className="text-blue-500 dark:text-blue-400">P/L ({dateLabel}):</span>
-                            <span className={`text-right font-medium ${plAtDateValue >= 0 ? 'text-blue-500 dark:text-blue-400' : 'text-orange-500 dark:text-orange-400'}`}>
+                            <span className="text-primary">P/L ({dateLabel}):</span>
+                            <span className={`text-right font-medium tabular-nums ${plAtDateValue >= 0 ? 'text-primary' : 'text-negative'}`}>
                               ${Math.round(plAtDateValue)}
                             </span>
                           </>
@@ -360,7 +373,7 @@ export default function PLChart({
 
                         {/* Always show P/L at expiration */}
                         <span className="text-muted-foreground">{plAtDateValue !== undefined ? 'P/L (Exp):' : 'P/L:'}</span>
-                        <span className={`text-right font-medium ${plValue >= 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-red-600 dark:text-red-400'}`}>
+                        <span className={`text-right font-medium tabular-nums ${plValue >= 0 ? 'text-positive' : 'text-negative'}`}>
                           ${plValue}
                         </span>
 
@@ -373,7 +386,7 @@ export default function PLChart({
                           <div className="col-span-2 mt-1 pt-1 border-t border-border">
                             {matchingPositions.map((pos, idx) => (
                               <div key={idx} className="flex items-center justify-between gap-3 mt-1">
-                                <span className={`font-semibold ${pos.qty > 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-red-600 dark:text-red-400'}`}>
+                                <span className={`font-semibold ${pos.qty > 0 ? 'text-positive' : 'text-negative'}`}>
                                   {pos.qty > 0 ? '+' : ''}{pos.qty} {pos.type === 'C' ? 'Call' : 'Put'}
                                 </span>
                                 <span className="text-muted-foreground text-xs">
@@ -390,7 +403,7 @@ export default function PLChart({
                 return null;
               }}
             />
-            <ReferenceLine y={0} stroke={isDark ? '#ffffff' : '#1f2937'} strokeWidth={1} />
+            <ReferenceLine y={0} stroke={chartColors.zero} strokeWidth={1} />
             {/* Price labels just above the zero line */}
             {xAxisTicks.map((tick, index) => (
               <ReferenceDot
@@ -406,7 +419,7 @@ export default function PLChart({
                         x={x}
                         y={y - 6}
                         textAnchor="middle"
-                        fill={isDark ? '#9ca3af' : '#6b7280'}
+                        fill={chartColors.label}
                         fontSize={11}
                       >
                         ${Math.round(tick)}
@@ -438,8 +451,8 @@ export default function PLChart({
                             y={y + 4}
                             width={boxWidth}
                             height={boxHeight}
-                            fill={isDark ? '#1f2937' : '#f3f4f6'}
-                            stroke={isDark ? '#374151' : '#d1d5db'}
+                            fill={isDark ? '#262626' : '#f5f5f5'}
+                            stroke={chartColors.grid}
                             strokeWidth={1}
                             rx={2}
                             ry={2}
@@ -450,7 +463,7 @@ export default function PLChart({
                             y={y + 4}
                             width={3}
                             height={boxHeight}
-                            fill={pos.qty > 0 ? '#10b981' : '#ef4444'}
+                            fill={pos.qty > 0 ? chartColors.positive : chartColors.negative}
                             rx={2}
                             ry={0}
                           />
@@ -459,7 +472,7 @@ export default function PLChart({
                             x={x + 2}
                             y={y + 16}
                             textAnchor="middle"
-                            fill={isDark ? '#f9fafb' : '#111827'}
+                            fill={chartColors.zero}
                             fontSize={10}
                             fontWeight={500}
                           >
@@ -521,7 +534,7 @@ export default function PLChart({
               <>
                 <ReferenceLine
                   x={marketData.current_price}
-                  stroke="#10b981"
+                  stroke={chartColors.accent}
                   strokeWidth={1}
                   strokeDasharray="4 2"
                 />
@@ -534,12 +547,12 @@ export default function PLChart({
                       const { x, y } = viewBox as { x: number; y: number };
                       return (
                         <g>
-                          {/* Green dot on x-axis */}
+                          {/* Accent dot on x-axis */}
                           <circle
                             cx={x}
                             cy={y}
                             r={4}
-                            fill="#10b981"
+                            fill={chartColors.accent}
                             stroke="#fff"
                             strokeWidth={2}
                           />
@@ -548,7 +561,7 @@ export default function PLChart({
                             x={x}
                             y={y + 18}
                             textAnchor="middle"
-                            fill={isDark ? '#10b981' : '#059669'}
+                            fill={chartColors.accent}
                             fontSize={11}
                             fontWeight={600}
                           >
@@ -564,20 +577,20 @@ export default function PLChart({
             <Area
               type="linear"
               dataKey="profit"
-              stroke="#10b981"
-              fill="#10b981"
-              fillOpacity={0.3}
-              strokeWidth={3}
+              stroke={chartColors.positive}
+              fill={chartColors.positive}
+              fillOpacity={0.15}
+              strokeWidth={2}
               baseValue={0}
               isAnimationActive={false}
             />
             <Area
               type="linear"
               dataKey="loss"
-              stroke="#ef4444"
-              fill="#ef4444"
-              fillOpacity={0.3}
-              strokeWidth={3}
+              stroke={chartColors.negative}
+              fill={chartColors.negative}
+              fillOpacity={0.15}
+              strokeWidth={2}
               baseValue={0}
               isAnimationActive={false}
             />
@@ -586,7 +599,7 @@ export default function PLChart({
               <Line
                 type="monotone"
                 dataKey="pl_at_date"
-                stroke="#3b82f6"
+                stroke={chartColors.accent}
                 strokeWidth={2}
                 strokeDasharray="6 3"
                 dot={false}
