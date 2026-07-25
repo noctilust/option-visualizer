@@ -156,6 +156,9 @@ async def get_volatility_skew(symbol: str, expiration: str):
                 "current_price": stock_price,
                 "atm_iv": skew_data["atm_iv"],
                 "skew_metric": skew_data["skew_metric"],
+                "skew_basis": skew_data.get("skew_basis", "unavailable"),
+                "call_selection": skew_data.get("call_selection"),
+                "put_selection": skew_data.get("put_selection"),
                 "points": skew_data["points"]
             }
         }

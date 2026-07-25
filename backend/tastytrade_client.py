@@ -21,6 +21,95 @@ logger = logging.getLogger(__name__)
 
 # Tastytrade API endpoints
 TASTYTRADE_API_URL = "https://api.tastyworks.com"
+SKEW_TARGET_DELTA = 0.25
+SKEW_DELTA_TOLERANCE = 0.05
+SKEW_ATM_MONEYNESS_TOLERANCE = 0.05
+
+
+def summarize_volatility_skew(
+    points: list[Dict[str, Any]],
+    current_price: float,
+) -> Dict[str, Any]:
+    """Summarize put-minus-call IV skew using the closest 25-delta options."""
+    call_candidates = [
+        point
+        for point in points
+        if point.get("call_delta") is not None
+        and point.get("call_iv") is not None
+        and abs(point["call_delta"] - SKEW_TARGET_DELTA) <= SKEW_DELTA_TOLERANCE
+    ]
+    put_candidates = [
+        point
+        for point in points
+        if point.get("put_delta") is not None
+        and point.get("put_iv") is not None
+        and abs(point["put_delta"] + SKEW_TARGET_DELTA) <= SKEW_DELTA_TOLERANCE
+    ]
+
+    call_point = min(
+        call_candidates,
+        key=lambda point: abs(point["call_delta"] - SKEW_TARGET_DELTA),
+        default=None,
+    )
+    put_point = min(
+        put_candidates,
+        key=lambda point: abs(point["put_delta"] + SKEW_TARGET_DELTA),
+        default=None,
+    )
+
+    if call_point is not None and put_point is not None:
+        return {
+            "skew_metric": put_point["put_iv"] - call_point["call_iv"],
+            "skew_basis": "25_delta",
+            "call_selection": {
+                "strike": call_point["strike"],
+                "delta": call_point["call_delta"],
+                "iv": call_point["call_iv"],
+            },
+            "put_selection": {
+                "strike": put_point["strike"],
+                "delta": put_point["put_delta"],
+                "iv": put_point["put_iv"],
+            },
+        }
+
+    atm_point = min(
+        (
+            point
+            for point in points
+            if point.get("strike") is not None
+            and point.get("call_iv") is not None
+            and point.get("put_iv") is not None
+            and current_price > 0
+            and abs(point["strike"] - current_price) / current_price
+            <= SKEW_ATM_MONEYNESS_TOLERANCE
+        ),
+        key=lambda point: abs(point["strike"] - current_price),
+        default=None,
+    )
+
+    if atm_point is not None:
+        return {
+            "skew_metric": atm_point["put_iv"] - atm_point["call_iv"],
+            "skew_basis": "atm",
+            "call_selection": {
+                "strike": atm_point["strike"],
+                "delta": atm_point.get("call_delta"),
+                "iv": atm_point["call_iv"],
+            },
+            "put_selection": {
+                "strike": atm_point["strike"],
+                "delta": atm_point.get("put_delta"),
+                "iv": atm_point["put_iv"],
+            },
+        }
+
+    return {
+        "skew_metric": None,
+        "skew_basis": "unavailable",
+        "call_selection": None,
+        "put_selection": None,
+    }
 
 
 class TastytradeClient:
@@ -769,10 +858,16 @@ class TastytradeClient:
             Dict with:
                 - points: list of SmileDataPoint with strike, iv, delta, etc.
                 - atm_iv: IV at nearest strike to current price
-                - skew_metric: put_iv - call_iv at ~25 delta
+                - skew_metric: put IV minus call IV
+                - skew_basis: 25_delta, atm, or unavailable
+                - call_selection/put_selection: legs used for the metric
         """
         if not self._ensure_token():
-            return {"points": [], "atm_iv": 0, "skew_metric": None}
+            return {
+                "points": [],
+                "atm_iv": 0,
+                **summarize_volatility_skew([], current_price),
+            }
 
         try:
             # Find a valid expiration (may differ from requested)
@@ -780,14 +875,22 @@ class TastytradeClient:
 
             if not valid_expiration:
                 logger.warning(f"Could not find valid expiration for {symbol}")
-                return {"points": [], "atm_iv": 0, "skew_metric": None}
+                return {
+                    "points": [],
+                    "atm_iv": 0,
+                    **summarize_volatility_skew([], current_price),
+                }
 
             # Generate strikes dynamically around current price
             filtered_strikes = self._generate_strikes_around_price(current_price)
 
             if not filtered_strikes:
                 logger.warning(f"Could not generate strikes for {symbol} at price {current_price}")
-                return {"points": [], "atm_iv": 0, "skew_metric": None}
+                return {
+                    "points": [],
+                    "atm_iv": 0,
+                    **summarize_volatility_skew([], current_price),
+                }
 
             # Build positions list for batch fetch
             positions = []
@@ -812,10 +915,6 @@ class TastytradeClient:
             points = []
             atm_iv = 0
             nearest_distance = float('inf')
-
-            # For skew metric calculation
-            call_25_delta_iv = None
-            put_25_delta_iv = None
 
             for strike in filtered_strikes:
                 call_key = f"{symbol}_{strike}_{valid_expiration}_C"
@@ -850,33 +949,29 @@ class TastytradeClient:
                     elif put_iv:
                         atm_iv = put_iv
 
-                # Track skew metric (25 delta options)
-                if point["call_delta"] and 0.20 <= point["call_delta"] <= 0.30 and point["call_iv"]:
-                    call_25_delta_iv = point["call_iv"]
-                if point["put_delta"] and -0.30 <= point["put_delta"] <= -0.20 and point["put_iv"]:
-                    put_25_delta_iv = point["put_iv"]
-
                 points.append(point)
 
-            # Calculate skew metric
-            skew_metric = None
-            if put_25_delta_iv is not None and call_25_delta_iv is not None:
-                skew_metric = put_25_delta_iv - call_25_delta_iv
+            skew_summary = summarize_volatility_skew(points, current_price)
 
             logger.info(f"Fetched volatility smile for {symbol} {expiration}: "
-                       f"{len(points)} strikes, ATM IV={atm_iv:.2%}, Skew={skew_metric}")
+                       f"{len(points)} strikes, ATM IV={atm_iv:.2%}, "
+                       f"Skew={skew_summary['skew_metric']} ({skew_summary['skew_basis']})")
 
             return {
                 "points": points,
                 "atm_iv": atm_iv,
-                "skew_metric": skew_metric
+                **skew_summary,
             }
 
         except Exception as e:
             logger.error(f"Error fetching volatility smile for {symbol}: {e}")
             import traceback
             logger.debug(traceback.format_exc())
-            return {"points": [], "atm_iv": 0, "skew_metric": None}
+            return {
+                "points": [],
+                "atm_iv": 0,
+                **summarize_volatility_skew([], current_price),
+            }
 
     def _safe_float(self, value: Any, divide_by: float = 1, multiply_by: float = 1) -> Optional[float]:
         """Safely convert value to float with optional scaling"""

@@ -102,12 +102,23 @@ export interface SkewDataPoint {
   put_ask?: number;
 }
 
+export interface SkewLegSelection {
+  strike: number;
+  delta: number | null;
+  iv: number;
+}
+
+export type SkewBasis = '25_delta' | 'atm' | 'unavailable';
+
 export interface SkewData {
   symbol: string;
   expiration: string;
   current_price: number;
   atm_iv: number;              // IV at nearest strike
-  skew_metric: number | null;  // put_iv - call_iv at 25 delta (or nearest)
+  skew_metric: number | null;  // Put IV minus Call IV
+  skew_basis?: SkewBasis;      // Optional for compatibility with older API responses
+  call_selection?: SkewLegSelection | null;
+  put_selection?: SkewLegSelection | null;
   points: SkewDataPoint[];
 }
 
