@@ -1,5 +1,6 @@
 import os
 import json
+from contextlib import asynccontextmanager
 from fastapi import FastAPI, UploadFile, File, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
@@ -10,7 +11,16 @@ import calculator
 from schemas import Position, CalculateRequest, CalculateResponse, MarketData
 from market_data import MarketDataFetcher
 
-app = FastAPI()
+
+@asynccontextmanager
+async def lifespan(_app: FastAPI):
+    yield
+    from tastytrade_client import close_tastytrade_client
+
+    close_tastytrade_client()
+
+
+app = FastAPI(lifespan=lifespan)
 
 # Initialize market data fetcher
 cache_minutes = int(os.getenv('MARKET_DATA_CACHE_MINUTES', '30'))  # Cache for 30 minutes
@@ -108,7 +118,7 @@ async def get_market_data(symbol: str):
         )
 
 @app.get("/volatility-skew/{symbol}")
-async def get_volatility_skew(symbol: str, expiration: str):
+def get_volatility_skew(symbol: str, expiration: str):
     """
     Fetch volatility skew data for a specific symbol and expiration.
 
@@ -155,6 +165,7 @@ async def get_volatility_skew(symbol: str, expiration: str):
                 "expiration": expiration,
                 "current_price": stock_price,
                 "atm_iv": skew_data["atm_iv"],
+                "data_status": skew_data.get("data_status", "ok"),
                 "skew_metric": skew_data["skew_metric"],
                 "skew_basis": skew_data.get("skew_basis", "unavailable"),
                 "call_selection": skew_data.get("call_selection"),
@@ -172,7 +183,7 @@ async def get_volatility_skew(symbol: str, expiration: str):
         )
 
 @app.get("/option-chain/{symbol}")
-async def get_option_chain(symbol: str):
+def get_option_chain(symbol: str):
     """
     Fetch option chain data (expirations and strikes) for a symbol.
 

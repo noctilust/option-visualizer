@@ -1,7 +1,10 @@
-import { lazy, Suspense, useEffect, useState } from 'react';
+import { lazy, Suspense, useCallback, useEffect, useState } from 'react';
 import { TrendingUp, AlertCircle, Loader2 } from 'lucide-react';
 import ExpirationDropdown from '../ExpirationDropdown';
-import { useVolatilitySkew } from '../../hooks/useVolatilitySkew';
+import {
+  isNoQuoteSkewData,
+  useVolatilitySkew,
+} from '../../hooks/useVolatilitySkew';
 import type {
   MarketData,
   SkewBasis,
@@ -10,7 +13,8 @@ import type {
   SkewLegSelection,
 } from '../../types';
 
-const SkewChart = lazy(() => import('./SkewChart'));
+const loadSkewChart = () => import('./SkewChart');
+const SkewChart = lazy(loadSkewChart);
 const SKEW_TARGET_DELTA = 0.25;
 const SKEW_DELTA_TOLERANCE = 0.05;
 const SKEW_ATM_MONEYNESS_TOLERANCE = 0.05;
@@ -29,6 +33,30 @@ interface SkewSummary {
   basis: SkewBasis;
   callSelection: SkewLegSelection | null;
   putSelection: SkewLegSelection | null;
+}
+
+interface ResolvedExpirations {
+  expirations: string[];
+  source: 'api' | 'fallback';
+}
+
+function isMonthlyOpex(expiration: string): boolean {
+  const [year, month, day] = expiration.split('-').map(Number);
+  if (!year || !month || !day) return false;
+
+  const firstDayOfWeek = new Date(year, month - 1, 1).getDay();
+  const firstFriday = (5 - firstDayOfWeek + 7) % 7 + 1;
+  return day === firstFriday + 14;
+}
+
+function formatExpirationLabel(expiration: string) {
+  const [year, month, day] = expiration.split('-').map(Number);
+  if (!year || !month || !day) return expiration;
+
+  return new Date(year, month - 1, day).toLocaleDateString('en-US', {
+    month: 'short',
+    day: 'numeric',
+  });
 }
 
 function toSelection(
@@ -168,24 +196,112 @@ function VolatilitySkewContent({
 }: VolatilitySkewProps) {
   // Local state for expiration
   const [localExpiration, setLocalExpiration] = useState(propExpiration);
+  const [previewExpiration, setPreviewExpiration] = useState<string | null>(null);
+  const [
+    unavailablePreviewExpiration,
+    setUnavailablePreviewExpiration,
+  ] = useState<string | null>(null);
+  const [resolvedExpirations, setResolvedExpirations] = useState<ResolvedExpirations | null>(null);
+  const activeExpiration = previewExpiration ?? localExpiration;
 
-  const { skewData, loading, error, fetchSkewData, clearSkewData } = useVolatilitySkew();
+  const {
+    skewData,
+    loading,
+    error,
+    fetchSkewData,
+    prefetchSkewData,
+    clearSkewData,
+  } = useVolatilitySkew();
 
-  // Fetch skew data when symbol or expiration changes
+  const handleExpirationsResolved = useCallback((
+    expirations: string[],
+    source: 'api' | 'fallback',
+  ) => {
+    setResolvedExpirations(current => {
+      if (
+        current?.source === source
+        && current.expirations.length === expirations.length
+        && current.expirations.every((expiration, index) => expiration === expirations[index])
+      ) {
+        return current;
+      }
+
+      return { expirations, source };
+    });
+  }, []);
+
+  // Warm the lazy chart bundle as soon as a symbol is selected so rendering
+  // does not wait on both data and code.
   useEffect(() => {
-    if (symbol && localExpiration && marketData?.current_price) {
-      fetchSkewData(symbol, localExpiration);
+    if (symbol.trim()) {
+      void loadSkewChart();
+    }
+  }, [symbol]);
+
+  // Fetch skew data when the selected or temporarily previewed expiration changes
+  useEffect(() => {
+    let cancelled = false;
+
+    if (symbol && activeExpiration && marketData?.current_price) {
+      const isPreview = previewExpiration !== null;
+      void fetchSkewData(symbol, activeExpiration, {
+        preserveCurrentOnNoQuotes: isPreview,
+      }).then(data => {
+        if (cancelled || !data) {
+          return;
+        }
+
+        if (isPreview && isNoQuoteSkewData(data)) {
+          setUnavailablePreviewExpiration(activeExpiration);
+          return;
+        }
+
+        setUnavailablePreviewExpiration(null);
+        if (
+          activeExpiration !== localExpiration
+          || resolvedExpirations?.source !== 'api'
+        ) {
+          return;
+        }
+
+        const monthlyExpirations = resolvedExpirations.expirations.filter(isMonthlyOpex);
+        const farMonthlyExpiration = monthlyExpirations[1];
+        if (farMonthlyExpiration && farMonthlyExpiration !== activeExpiration) {
+          void prefetchSkewData(symbol, farMonthlyExpiration);
+        }
+      });
     } else {
       clearSkewData();
     }
-  }, [symbol, localExpiration, marketData?.current_price, fetchSkewData, clearSkewData]);
+
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    activeExpiration,
+    clearSkewData,
+    fetchSkewData,
+    localExpiration,
+    marketData?.current_price,
+    prefetchSkewData,
+    previewExpiration,
+    resolvedExpirations,
+    symbol,
+  ]);
 
   const handleExpirationChange = (expiration: string) => {
+    setPreviewExpiration(null);
+    setUnavailablePreviewExpiration(null);
     setLocalExpiration(expiration);
     if (onExpirationChange) {
       onExpirationChange(expiration);
     }
   };
+
+  const handlePreviewChange = useCallback((expiration: string | null) => {
+    setPreviewExpiration(expiration);
+    setUnavailablePreviewExpiration(null);
+  }, []);
 
   // Format IV as percentage
   const formatIV = (iv: number) => {
@@ -214,14 +330,35 @@ function VolatilitySkewContent({
 
         {/* Expiration Selector */}
         {symbol && (
-          <ExpirationDropdown
-            symbol={symbol}
-            value={localExpiration}
-            onChange={handleExpirationChange}
-            isDark={isDark}
-          />
+          <div className="flex items-center gap-2">
+            {previewExpiration && (
+              <span className="rounded border border-primary/30 bg-primary/10 px-2 py-1 text-xs font-medium text-primary">
+                Preview
+              </span>
+            )}
+            <ExpirationDropdown
+              symbol={symbol}
+              value={localExpiration}
+              onChange={handleExpirationChange}
+              onPreviewChange={handlePreviewChange}
+              onExpirationsResolved={handleExpirationsResolved}
+              isDark={isDark}
+              autoSelectNextMonthly
+            />
+          </div>
         )}
       </div>
+
+      {unavailablePreviewExpiration && (
+        <div
+          role="status"
+          className="mx-auto mb-4 flex max-w-md items-center justify-center gap-2 rounded border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-sm text-foreground"
+        >
+          <AlertCircle className="h-4 w-4 shrink-0 text-amber-500" />
+          No Tastytrade quote data available for{' '}
+          {formatExpirationLabel(unavailablePreviewExpiration)}.
+        </div>
+      )}
 
       {/* Put-call IV spread badge and gauge */}
       {skewData && (
@@ -312,12 +449,12 @@ function VolatilitySkewContent({
       )}
 
       {/* Loading State */}
-      {loading && (
+      {loading && !skewData && (
         <ChartLoadingState message="Fetching volatility skew data..." />
       )}
 
       {/* Error State */}
-      {error && !loading && (
+      {error && !loading && !skewData && (
         <div className="h-[350px] flex items-center justify-center">
           <div className="flex flex-col items-center gap-3 text-muted-foreground max-w-md text-center">
             <AlertCircle className="w-8 h-8 text-destructive" />
@@ -327,11 +464,33 @@ function VolatilitySkewContent({
       )}
 
       {/* Chart */}
-      {!loading && !error && skewData && (
-        <>
+      {skewData && (
+        <div className="relative">
           <Suspense fallback={<ChartLoadingState message="Preparing volatility chart..." />}>
             <SkewChart data={skewData} isDark={isDark} />
           </Suspense>
+
+          {loading && (
+            <div className="absolute inset-0 flex items-center justify-center rounded-lg bg-background/75 backdrop-blur-[1px]">
+              <div
+                role="status"
+                className="flex items-center gap-2 rounded-full border border-border bg-card px-3 py-2 text-sm text-muted-foreground shadow-sm"
+              >
+                <Loader2 className="h-4 w-4 animate-spin" />
+                Loading {formatExpirationLabel(activeExpiration)}…
+              </div>
+            </div>
+          )}
+
+          {error && !loading && (
+            <div
+              role="alert"
+              className="mx-auto mt-3 flex max-w-md items-center justify-center gap-2 rounded border border-destructive/30 bg-destructive/10 px-3 py-2 text-xs text-destructive"
+            >
+              <AlertCircle className="h-4 w-4 shrink-0" />
+              Refresh failed; showing the most recently cached chart.
+            </div>
+          )}
 
           {/* Legend */}
           <div className="flex items-center justify-center gap-6 mt-4 text-sm">
@@ -376,7 +535,7 @@ function VolatilitySkewContent({
               </span>
             </div>
           </div>
-        </>
+        </div>
       )}
 
       {/* Empty State */}

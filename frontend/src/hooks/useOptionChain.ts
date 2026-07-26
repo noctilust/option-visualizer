@@ -1,4 +1,4 @@
-import { useState, useCallback, useRef } from 'react';
+import { useState, useCallback, useEffect, useRef } from 'react';
 
 const API_BASE = import.meta.env.VITE_API_URL || '';
 
@@ -19,6 +19,7 @@ interface UseOptionChainReturn {
   chainData: OptionChainData | null;
   loading: boolean;
   error: string | null;
+  resolvedSymbol: string | null;
   fetchOptionChain: (symbol: string) => Promise<void>;
   clearOptionChain: () => void;
 }
@@ -47,33 +48,51 @@ export function useOptionChain(): UseOptionChainReturn {
   const [chainData, setChainData] = useState<OptionChainData | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [resolvedSymbol, setResolvedSymbol] = useState<string | null>(null);
   const cacheRef = useRef<Record<string, { data: OptionChainData; timestamp: number }>>({});
+  const requestIdRef = useRef(0);
+  const abortControllerRef = useRef<AbortController | null>(null);
 
   const fetchOptionChain = useCallback(async (symbol: string) => {
     if (!symbol || symbol.trim() === '') {
+      requestIdRef.current += 1;
+      abortControllerRef.current?.abort();
+      abortControllerRef.current = null;
       setChainData(null);
       setError('Symbol is required');
+      setResolvedSymbol(null);
+      setLoading(false);
       return;
     }
 
-    const upperSymbol = symbol.toUpperCase();
+    const upperSymbol = symbol.trim().toUpperCase();
     const now = Date.now();
     const cached = cacheRef.current[upperSymbol];
+    const requestId = ++requestIdRef.current;
+
+    abortControllerRef.current?.abort();
+    abortControllerRef.current = null;
 
     // Use cache if less than 5 minutes old
     if (cached && now - cached.timestamp < 5 * 60 * 1000) {
       setChainData(cached.data);
       setError(null);
+      setResolvedSymbol(upperSymbol);
+      setLoading(false);
       return;
     }
 
+    const abortController = new AbortController();
+    abortControllerRef.current = abortController;
+    setChainData(null);
     setLoading(true);
     setError(null);
+    setResolvedSymbol(null);
 
     try {
       const response = await fetch(
         `${API_BASE}/option-chain/${upperSymbol}`,
-        { method: 'GET' }
+        { method: 'GET', signal: abortController.signal }
       );
 
       if (!response.ok) {
@@ -84,7 +103,7 @@ export function useOptionChain(): UseOptionChainReturn {
       const result = await response.json();
       const rawExpirations: string[] = result.expirations || [];
       const strikesByExpiration: Record<string, number[]> = result.strikes_by_expiration || {};
-      const underlyingPrice: number | null = result.underlying_price || null;
+      const underlyingPrice: number | null = result.underlying_price ?? null;
 
       // Transform expirations to include display info
       const today = new Date();
@@ -121,29 +140,51 @@ export function useOptionChain(): UseOptionChainReturn {
       };
 
       // Cache the result
-      cacheRef.current[upperSymbol] = { data, timestamp: now };
+      cacheRef.current[upperSymbol] = { data, timestamp: Date.now() };
 
       console.log(`✅ Option chain fetched for ${upperSymbol}: ${expirations.length} expirations`);
+      if (requestId !== requestIdRef.current) return;
+
       setChainData(data);
+      setResolvedSymbol(upperSymbol);
     } catch (err) {
+      if (requestId !== requestIdRef.current || abortController.signal.aborted) return;
+
       const message = err instanceof Error ? err.message : 'Failed to fetch option chain';
       console.error('Option chain fetch error:', err);
       setError(message);
       setChainData(null);
+      setResolvedSymbol(upperSymbol);
     } finally {
-      setLoading(false);
+      if (requestId === requestIdRef.current) {
+        if (abortControllerRef.current === abortController) {
+          abortControllerRef.current = null;
+        }
+        setLoading(false);
+      }
     }
   }, []);
 
   const clearOptionChain = useCallback(() => {
+    requestIdRef.current += 1;
+    abortControllerRef.current?.abort();
+    abortControllerRef.current = null;
     setChainData(null);
     setError(null);
+    setResolvedSymbol(null);
+    setLoading(false);
+  }, []);
+
+  useEffect(() => () => {
+    requestIdRef.current += 1;
+    abortControllerRef.current?.abort();
   }, []);
 
   return {
     chainData,
     loading,
     error,
+    resolvedSymbol,
     fetchOptionChain,
     clearOptionChain,
   };

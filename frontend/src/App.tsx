@@ -23,7 +23,7 @@ import Collapsible from './components/Collapsible';
 import SectionCard from './components/SectionCard';
 import StickyHeader from './components/StickyHeader';
 
-// Components - Lazy loaded when analysis charts are needed
+// Components - Lazy loaded when their chart sections become available
 const PLChart = lazy(() => import('./components/PLChart'));
 const VolatilitySkewPanel = lazy(() => import('./components/VolatilitySkew/VolatilitySkewPanel'));
 const GreeksChart = lazy(() => import('./components/GreeksChart'));
@@ -100,6 +100,13 @@ function App() {
     setMarketData,
     loadingMarketData,
   } = useMarketData();
+
+  const resolvedSymbolMarketData =
+    !loadingMarketData
+    && symbol.trim() !== ''
+    && marketData?.symbol.toUpperCase() === symbol.trim().toUpperCase()
+      ? marketData
+      : null;
 
   // Calculation hook
   const {
@@ -397,6 +404,18 @@ function App() {
             </div>
           </SectionCard>
 
+          {/* Volatility Skew - available as soon as symbol market data loads */}
+          {resolvedSymbolMarketData && (
+            <Suspense fallback={<VolatilitySkewSkeleton />}>
+              <VolatilitySkewPanel
+                symbol={symbol}
+                marketData={resolvedSymbolMarketData}
+                selectedExpiration={primaryExpiration}
+                isDark={isDark}
+              />
+            </Suspense>
+          )}
+
           {/* Step 2: Add Positions */}
           {symbol && symbol.trim() !== '' && marketData && marketData.iv_rank !== null && marketData.iv_rank !== undefined ? (
             <SectionCard
@@ -454,18 +473,6 @@ function App() {
                   symbol={symbol}
                 />
               </SectionCard>
-
-              {/* Volatility Skew - Market context for selected expiration */}
-              {symbol && marketData && primaryExpiration && (
-                <Suspense fallback={<VolatilitySkewSkeleton />}>
-                  <VolatilitySkewPanel
-                    symbol={symbol}
-                    marketData={marketData}
-                    selectedExpiration={primaryExpiration}
-                    isDark={isDark}
-                  />
-                </Suspense>
-              )}
 
               <SectionCard
                 step={4}

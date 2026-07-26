@@ -8,9 +8,15 @@ Note: Sandbox accounts do NOT return market metrics - production account require
 
 import os
 import logging
+import time
+import threading
 import httpx
+from collections import OrderedDict
+from concurrent.futures import Future
+from copy import deepcopy
+from email.utils import parsedate_to_datetime
 from typing import Optional, Dict, Any
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 from dotenv import load_dotenv
 
@@ -24,6 +30,33 @@ TASTYTRADE_API_URL = "https://api.tastyworks.com"
 SKEW_TARGET_DELTA = 0.25
 SKEW_DELTA_TOLERANCE = 0.05
 SKEW_ATM_MONEYNESS_TOLERANCE = 0.05
+
+
+def _env_float(name: str, default: float) -> float:
+    """Read a non-negative float setting without making startup fragile."""
+    try:
+        return max(0.0, float(os.getenv(name, str(default))))
+    except (TypeError, ValueError):
+        logger.warning("Invalid %s; using %s", name, default)
+        return default
+
+
+def _env_int(name: str, default: int, minimum: int = 1) -> int:
+    """Read a bounded integer setting without making startup fragile."""
+    try:
+        return max(minimum, int(os.getenv(name, str(default))))
+    except (TypeError, ValueError):
+        logger.warning("Invalid %s; using %s", name, default)
+        return default
+
+
+# Tastytrade does not publish a single fixed request allowance for every API
+# consumer. Keep a conservative, configurable process-wide guard and observe
+# provider-supplied rate headers instead of assuming an undocumented limit.
+_REQUEST_MAX_CONCURRENCY = _env_int("TASTYTRADE_MAX_CONCURRENT_REQUESTS", 2)
+_REQUEST_SEMAPHORE = threading.BoundedSemaphore(_REQUEST_MAX_CONCURRENCY)
+_REQUEST_PACING_LOCK = threading.Lock()
+_NEXT_REQUEST_AT = 0.0
 
 
 def summarize_volatility_skew(
@@ -115,7 +148,7 @@ def summarize_volatility_skew(
 class TastytradeClient:
     """Client for Tastytrade API using direct REST calls"""
 
-    def __init__(self):
+    def __init__(self, http_client: httpx.Client | None = None):
         """
         Initialize Tastytrade client with OAuth credentials from environment.
         
@@ -129,7 +162,63 @@ class TastytradeClient:
         self.refresh_token = os.getenv('TASTYTRADE_REFRESH_TOKEN', '')
         self._access_token: Optional[str] = None
         self._token_expiry: Optional[datetime] = None
-        self._greeks_cache: Dict[str, Any] = {}  # Cache for option Greeks
+        self._token_lock = threading.Lock()
+        self._greeks_cache: OrderedDict[
+            str, tuple[float, Dict[str, Any]]
+        ] = OrderedDict()
+        self._greeks_cache_lock = threading.Lock()
+        self._greeks_cache_ttl_seconds = _env_float(
+            "TASTYTRADE_GREEKS_CACHE_SECONDS", 300.0
+        )
+        self._greeks_cache_max_entries = _env_int(
+            "TASTYTRADE_GREEKS_CACHE_MAX_ENTRIES", 4096
+        )
+        self._skew_cache: OrderedDict[
+            tuple[str, str, float], tuple[float, Dict[str, Any]]
+        ] = OrderedDict()
+        self._skew_inflight: Dict[
+            tuple[str, str, float], Future[Dict[str, Any]]
+        ] = {}
+        self._skew_cache_lock = threading.Lock()
+        self._skew_cache_ttl_seconds = _env_float(
+            "TASTYTRADE_SKEW_CACHE_SECONDS", 300.0
+        )
+        self._skew_negative_cache_ttl_seconds = _env_float(
+            "TASTYTRADE_SKEW_NEGATIVE_CACHE_SECONDS", 45.0
+        )
+        self._skew_cache_max_entries = _env_int(
+            "TASTYTRADE_SKEW_CACHE_MAX_ENTRIES", 32
+        )
+        self._option_chain_cache: OrderedDict[
+            str, tuple[float, Dict[str, Any]]
+        ] = OrderedDict()
+        self._option_chain_inflight: Dict[
+            str, Future[Dict[str, Any]]
+        ] = {}
+        self._option_chain_cache_lock = threading.Lock()
+        self._option_chain_cache_ttl_seconds = _env_float(
+            "TASTYTRADE_OPTION_CHAIN_CACHE_SECONDS", 300.0
+        )
+        self._option_chain_cache_max_entries = _env_int(
+            "TASTYTRADE_OPTION_CHAIN_CACHE_MAX_ENTRIES", 32
+        )
+        self._request_min_interval_seconds = _env_float(
+            "TASTYTRADE_MIN_REQUEST_INTERVAL_SECONDS", 0.25
+        )
+        self._rate_limit_retries = _env_int(
+            "TASTYTRADE_RATE_LIMIT_RETRIES", 2, minimum=0
+        )
+        self._rate_limit_max_delay_seconds = _env_float(
+            "TASTYTRADE_RATE_LIMIT_MAX_DELAY_SECONDS", 30.0
+        )
+        self._http_client = http_client or httpx.Client(
+            limits=httpx.Limits(
+                max_connections=8,
+                max_keepalive_connections=4,
+                keepalive_expiry=30.0,
+            )
+        )
+        self._owns_http_client = http_client is None
         self._enabled = bool(self.client_secret and self.refresh_token)
         
         if not self._enabled:
@@ -142,6 +231,139 @@ class TastytradeClient:
         """Check if Tastytrade integration is enabled"""
         return self._enabled
 
+    def close(self) -> None:
+        """Close the persistent HTTP connection pool owned by this client."""
+        if self._owns_http_client:
+            self._http_client.close()
+
+    def _get_cached_greeks(
+        self, cache_key: str
+    ) -> Optional[Dict[str, Any]]:
+        """Return a fresh copy and keep the bounded cache in LRU order."""
+        now = time.monotonic()
+        with self._greeks_cache_lock:
+            cached = self._greeks_cache.get(cache_key)
+            if cached is None:
+                return None
+
+            cached_at, cached_data = cached
+            if now - cached_at >= self._greeks_cache_ttl_seconds:
+                del self._greeks_cache[cache_key]
+                return None
+
+            self._greeks_cache.move_to_end(cache_key)
+            return deepcopy(cached_data)
+
+    def _cache_greeks(
+        self, cache_key: str, greeks: Dict[str, Any]
+    ) -> None:
+        """Store a defensive copy and evict the least recently used entries."""
+        with self._greeks_cache_lock:
+            self._greeks_cache[cache_key] = (
+                time.monotonic(),
+                deepcopy(greeks),
+            )
+            self._greeks_cache.move_to_end(cache_key)
+            while len(self._greeks_cache) > self._greeks_cache_max_entries:
+                self._greeks_cache.popitem(last=False)
+
+    def _observe_rate_limit_headers(self, response: httpx.Response) -> None:
+        """Log provider-supplied rate telemetry without assuming fixed limits."""
+        limit = response.headers.get("ratelimit-limit") or response.headers.get(
+            "x-ratelimit-limit"
+        )
+        remaining = response.headers.get(
+            "ratelimit-remaining"
+        ) or response.headers.get("x-ratelimit-remaining")
+        reset = response.headers.get("ratelimit-reset") or response.headers.get(
+            "x-ratelimit-reset"
+        )
+
+        if limit is not None or remaining is not None or reset is not None:
+            logger.debug(
+                "Tastytrade rate headers: limit=%s remaining=%s reset=%s",
+                limit,
+                remaining,
+                reset,
+            )
+        if remaining == "0":
+            logger.warning("Tastytrade reports no remaining requests before reset=%s", reset)
+
+    def _retry_after_seconds(
+        self, response: httpx.Response, attempt: int
+    ) -> float | None:
+        """Return a bounded delay, or decline a retry beyond the configured cap."""
+        retry_after = response.headers.get("retry-after")
+        delay: float | None = None
+
+        if retry_after:
+            try:
+                delay = max(0.0, float(retry_after))
+            except ValueError:
+                try:
+                    retry_at = parsedate_to_datetime(retry_after)
+                    if retry_at.tzinfo is None:
+                        retry_at = retry_at.replace(tzinfo=timezone.utc)
+                    delay = max(
+                        0.0,
+                        (retry_at - datetime.now(timezone.utc)).total_seconds(),
+                    )
+                except (TypeError, ValueError, OverflowError):
+                    logger.warning(
+                        "Ignoring invalid Tastytrade Retry-After header: %s",
+                        retry_after,
+                    )
+
+        if delay is None:
+            delay = 0.5 * (2**attempt)
+
+        if retry_after and delay > self._rate_limit_max_delay_seconds:
+            return None
+        return min(delay, self._rate_limit_max_delay_seconds)
+
+    def _pace_request(self) -> None:
+        """Reserve the next process-wide request slot."""
+        global _NEXT_REQUEST_AT
+
+        with _REQUEST_PACING_LOCK:
+            now = time.monotonic()
+            wait_seconds = max(0.0, _NEXT_REQUEST_AT - now)
+            if wait_seconds:
+                time.sleep(wait_seconds)
+                now = time.monotonic()
+            _NEXT_REQUEST_AT = now + self._request_min_interval_seconds
+
+    def _request(self, method: str, url: str, **kwargs: Any) -> httpx.Response:
+        """Issue a pooled, paced request with bounded HTTP 429 retries."""
+        for attempt in range(self._rate_limit_retries + 1):
+            with _REQUEST_SEMAPHORE:
+                self._pace_request()
+                response = self._http_client.request(method, url, **kwargs)
+
+            self._observe_rate_limit_headers(response)
+            if response.status_code != 429 or attempt >= self._rate_limit_retries:
+                return response
+
+            delay = self._retry_after_seconds(response, attempt)
+            if delay is None:
+                logger.warning(
+                    "Tastytrade Retry-After exceeds the %.2fs retry budget; "
+                    "returning HTTP 429 without an early retry",
+                    self._rate_limit_max_delay_seconds,
+                )
+                return response
+            logger.warning(
+                "Tastytrade rate limited %s %s; retrying in %.2fs (%s/%s)",
+                method.upper(),
+                url,
+                delay,
+                attempt + 1,
+                self._rate_limit_retries,
+            )
+            time.sleep(delay)
+
+        raise RuntimeError("Unreachable Tastytrade request retry state")
+
     def _ensure_token(self) -> bool:
         """
         Ensure we have a valid access token, refreshing if needed.
@@ -152,47 +374,59 @@ class TastytradeClient:
         if not self._enabled:
             return False
 
-        # Check if token is still valid (tokens last 15 min, refresh at 14)
+        # Check if token is still valid (tokens last 15 min, refresh at 14).
         if self._access_token is not None and self._token_expiry is not None:
             if datetime.now() < self._token_expiry:
                 return True
 
-        try:
-            logger.info("Refreshing Tastytrade access token...")
-            
-            # OAuth token refresh via REST API
-            response = httpx.post(
-                f"{TASTYTRADE_API_URL}/oauth/token",
-                data={
-                    "grant_type": "refresh_token",
-                    "client_secret": self.client_secret,
-                    "refresh_token": self.refresh_token
-                },
-                timeout=10.0
-            )
-            response.raise_for_status()
-            
-            data = response.json()
-            self._access_token = data.get("access_token")
-            
-            # Token expires in 'expires_in' seconds (usually 900 = 15 min)
-            expires_in = data.get("expires_in", 900)
-            # Refresh 1 minute early to avoid edge cases
-            self._token_expiry = datetime.now() + timedelta(seconds=expires_in - 60)
-            
-            logger.info("Tastytrade access token refreshed successfully")
-            return True
-            
-        except httpx.HTTPStatusError as e:
-            logger.error(f"Failed to refresh Tastytrade token: {e.response.status_code} - {e.response.text}")
-            self._access_token = None
-            self._token_expiry = None
-            return False
-        except Exception as e:
-            logger.error(f"Failed to refresh Tastytrade token: {e}")
-            self._access_token = None
-            self._token_expiry = None
-            return False
+        # Multiple prefetch requests may arrive together. Only one should refresh
+        # OAuth credentials while the others reuse the refreshed token.
+        with self._token_lock:
+            if self._access_token is not None and self._token_expiry is not None:
+                if datetime.now() < self._token_expiry:
+                    return True
+
+            try:
+                logger.info("Refreshing Tastytrade access token...")
+
+                response = self._request(
+                    "POST",
+                    f"{TASTYTRADE_API_URL}/oauth/token",
+                    data={
+                        "grant_type": "refresh_token",
+                        "client_secret": self.client_secret,
+                        "refresh_token": self.refresh_token,
+                    },
+                    timeout=10.0,
+                )
+                response.raise_for_status()
+
+                data = response.json()
+                self._access_token = data.get("access_token")
+
+                # Refresh 1 minute early to avoid edge cases.
+                expires_in = data.get("expires_in", 900)
+                self._token_expiry = datetime.now() + timedelta(
+                    seconds=max(0, expires_in - 60)
+                )
+
+                logger.info("Tastytrade access token refreshed successfully")
+                return bool(self._access_token)
+
+            except httpx.HTTPStatusError as e:
+                logger.error(
+                    "Failed to refresh Tastytrade token: %s - %s",
+                    e.response.status_code,
+                    e.response.text,
+                )
+                self._access_token = None
+                self._token_expiry = None
+                return False
+            except Exception as e:
+                logger.error("Failed to refresh Tastytrade token: %s", e)
+                self._access_token = None
+                self._token_expiry = None
+                return False
 
     def get_market_metrics(self, symbol: str) -> Optional[Dict[str, Any]]:
         """
@@ -216,7 +450,8 @@ class TastytradeClient:
 
         try:
             # Fetch market metrics via REST API
-            response = httpx.get(
+            response = self._request(
+                "GET",
                 f"{TASTYTRADE_API_URL}/market-metrics",
                 params={"symbols": symbol},
                 headers={"Authorization": f"Bearer {self._access_token}"},
@@ -278,11 +513,10 @@ class TastytradeClient:
 
         # Check cache first (5-minute cache for Greeks)
         cache_key = f"greeks_{symbol}_{strike}_{expiration_date}_{option_type}"
-        if cache_key in self._greeks_cache:
-            cached_time, cached_data = self._greeks_cache[cache_key]
-            if datetime.now() - cached_time < timedelta(minutes=5):
-                logger.info(f"Greeks cache hit: {cache_key}")
-                return cached_data
+        cached_data = self._get_cached_greeks(cache_key)
+        if cached_data is not None:
+            logger.info(f"Greeks cache hit: {cache_key}")
+            return cached_data
 
         try:
             # Convert to OSI symbol format: "SYMBOL  YYMMDD(C/P)00000000"
@@ -292,7 +526,8 @@ class TastytradeClient:
                 return None
 
             # Fetch option quote from /market-data endpoint
-            response = httpx.get(
+            response = self._request(
+                "GET",
                 f"{TASTYTRADE_API_URL}/market-data",
                 params={"symbols": osi_symbol},
                 headers={"Authorization": f"Bearer {self._access_token}"},
@@ -333,9 +568,13 @@ class TastytradeClient:
                 return None
 
             # Cache the result
-            self._greeks_cache[cache_key] = (datetime.now(), greeks)
-            logger.info(f"Fetched Greeks for {osi_symbol}: "
-                       f"IV={greeks['implied_volatility']:.2%}, delta={greeks['delta']:.4f}")
+            self._cache_greeks(cache_key, greeks)
+            logger.debug(
+                "Fetched Greeks for %s: IV=%s, delta=%s",
+                osi_symbol,
+                greeks["implied_volatility"],
+                greeks["delta"],
+            )
             return greeks
 
         except httpx.HTTPStatusError as e:
@@ -381,12 +620,11 @@ class TastytradeClient:
 
             # Check cache first
             cache_key = f"greeks_{symbol}_{strike}_{expiration_date}_{option_type}"
-            if cache_key in self._greeks_cache:
-                cached_time, cached_data = self._greeks_cache[cache_key]
-                if datetime.now() - cached_time < timedelta(minutes=5):
-                    result[position_key] = cached_data
-                    logger.info(f"Greeks cache hit: {position_key}")
-                    continue
+            cached_data = self._get_cached_greeks(cache_key)
+            if cached_data is not None:
+                result[position_key] = cached_data
+                logger.debug("Greeks cache hit: %s", position_key)
+                continue
 
             # Create OSI symbol for API request
             osi_symbol = self._to_osi_symbol(symbol, expiration_date, strike, option_type)
@@ -406,7 +644,8 @@ class TastytradeClient:
                 chunk = osi_symbols[i:i + chunk_size]
                 symbols_param = ','.join(chunk)
 
-                response = httpx.get(
+                response = self._request(
+                    "GET",
                     f"{TASTYTRADE_API_URL}/market-data",
                     params={"symbols": symbols_param},
                     headers={"Authorization": f"Bearer {self._access_token}"},
@@ -454,11 +693,15 @@ class TastytradeClient:
 
                     # Cache the result
                     cache_key = f"greeks_{symbol}_{strike}_{expiration_date}_{option_type}"
-                    self._greeks_cache[cache_key] = (datetime.now(), greeks)
+                    self._cache_greeks(cache_key, greeks)
 
                     result[position_key] = greeks
-                    logger.info(f"Fetched Greeks for {osi_symbol}: "
-                               f"IV={greeks['implied_volatility']:.2%}, delta={greeks['delta']:.4f}")
+                    logger.debug(
+                        "Fetched Greeks for %s: IV=%s, delta=%s",
+                        osi_symbol,
+                        greeks["implied_volatility"],
+                        greeks["delta"],
+                    )
 
             return result
 
@@ -538,7 +781,8 @@ class TastytradeClient:
             return self._search_symbols_fallback(query)
 
         try:
-            response = httpx.get(
+            response = self._request(
+                "GET",
                 f"{TASTYTRADE_API_URL}/symbols/search/{query}",
                 headers={"Authorization": f"Bearer {self._access_token}"},
                 timeout=10.0
@@ -649,7 +893,53 @@ class TastytradeClient:
 
         return strikes
 
-    def get_option_chain(self, symbol: str, current_price: float | None = None) -> Dict[str, Any]:
+    def get_option_chain(
+        self, symbol: str, current_price: float | None = None
+    ) -> Dict[str, Any]:
+        """Return a bounded cached chain and deduplicate concurrent misses."""
+        cache_key = symbol.strip().upper()
+        now = time.monotonic()
+
+        with self._option_chain_cache_lock:
+            cached = self._option_chain_cache.get(cache_key)
+            if cached is not None:
+                cached_at, cached_result = cached
+                if now - cached_at < self._option_chain_cache_ttl_seconds:
+                    self._option_chain_cache.move_to_end(cache_key)
+                    return deepcopy(cached_result)
+                del self._option_chain_cache[cache_key]
+
+            future = self._option_chain_inflight.get(cache_key)
+            is_owner = future is None
+            if future is None:
+                future = Future()
+                self._option_chain_inflight[cache_key] = future
+
+        if not is_owner:
+            return deepcopy(future.result())
+
+        result = self._fetch_option_chain(cache_key, current_price)
+
+        with self._option_chain_cache_lock:
+            if result.get("expirations"):
+                self._option_chain_cache[cache_key] = (
+                    time.monotonic(),
+                    deepcopy(result),
+                )
+                self._option_chain_cache.move_to_end(cache_key)
+                while (
+                    len(self._option_chain_cache)
+                    > self._option_chain_cache_max_entries
+                ):
+                    self._option_chain_cache.popitem(last=False)
+            self._option_chain_inflight.pop(cache_key, None)
+            future.set_result(deepcopy(result))
+
+        return deepcopy(result)
+
+    def _fetch_option_chain(
+        self, symbol: str, current_price: float | None = None
+    ) -> Dict[str, Any]:
         """
         Fetch option chain data (expirations and strikes) from Tastytrade API.
 
@@ -666,94 +956,99 @@ class TastytradeClient:
             return {"expirations": [], "strikes_by_expiration": {}, "underlying_price": None}
 
         try:
-            # First, fetch available expirations for this symbol
-            response = httpx.get(
-                f"{TASTYTRADE_API_URL}/option-chains/{symbol}/expirations",
+            # The documented nested endpoint returns expirations and strikes in
+            # one response. This replaces the former /expirations + /strikes
+            # calls, which are not part of the current API surface.
+            response = self._request(
+                "GET",
+                f"{TASTYTRADE_API_URL}/option-chains/{symbol}/nested",
                 headers={"Authorization": f"Bearer {self._access_token}"},
-                timeout=15.0
+                timeout=20.0,
             )
 
             if response.status_code == 404:
-                logger.warning(f"No option chain found for {symbol}")
-                return {"expirations": [], "strikes_by_expiration": {}, "underlying_price": None}
+                logger.warning("No option chain found for %s", symbol)
+                return {
+                    "expirations": [],
+                    "strikes_by_expiration": {},
+                    "underlying_price": None,
+                }
 
             response.raise_for_status()
-            data = response.json()
+            data = response.json().get("data", {})
+            chain_items = data.get("items", [])
+            if isinstance(chain_items, dict):
+                chain_items = [chain_items]
+            if not chain_items and data.get("expirations"):
+                chain_items = [data]
 
-            # Parse expirations
-            items = data.get("data", {}).get("items", [])
-            expirations = []
-            for item in items:
-                exp_str = item.get("expiration-date", "")
-                if exp_str:
-                    # Convert to ISO format (YYYY-MM-DD)
-                    try:
-                        # Tastytrade returns format like "2025-02-20T00:00:00+0000" or similar
-                        from datetime import datetime
-                        # Handle various date formats
-                        if "T" in exp_str:
-                            exp_date = datetime.fromisoformat(exp_str.replace("Z", "+00:00").replace("+0000", "+00:00"))
-                        else:
-                            exp_date = datetime.strptime(exp_str, "%Y-%m-%d")
-                        expirations.append(exp_date.strftime("%Y-%m-%d"))
-                    except Exception as e:
-                        logger.warning(f"Could not parse expiration date {exp_str}: {e}")
+            strikes_by_expiration: Dict[str, list[float]] = {}
+            underlying_price = self._safe_float(data.get("underlying-price"))
 
-            if not expirations:
-                logger.warning(f"No valid expirations found for {symbol}")
-                return {"expirations": [], "strikes_by_expiration": {}, "underlying_price": None}
-
-            # Fetch strikes for each expiration
-            # Tastytrade API allows fetching all strikes in one call by passing multiple expirations
-            strikes_by_expiration = {}
-
-            # Get strikes for all expirations
-            # We'll batch the requests to avoid overwhelming the API
-            for i in range(0, len(expirations), min(10, len(expirations))):
-                batch_expirations = expirations[i:i + 10]
-                expirations_param = ",".join(batch_expirations)
-
-                try:
-                    strikes_response = httpx.get(
-                        f"{TASTYTRADE_API_URL}/option-chains/{symbol}/strikes",
-                        params={"expirations": expirations_param},
-                        headers={"Authorization": f"Bearer {self._access_token}"},
-                        timeout=15.0
+            for chain in chain_items:
+                if underlying_price is None:
+                    underlying_price = self._safe_float(
+                        chain.get("underlying-price")
                     )
-                    strikes_response.raise_for_status()
-                    strikes_data = strikes_response.json()
 
-                    # Parse strikes for each expiration
-                    strikes_items = strikes_data.get("data", {}).get("items", [])
-                    for item in strikes_items:
-                        exp_str = item.get("expiration-date", "")
-                        if "T" in exp_str:
-                            from datetime import datetime
-                            exp_date = datetime.fromisoformat(exp_str.replace("Z", "+00:00").replace("+0000", "+00:00"))
-                            exp_iso = exp_date.strftime("%Y-%m-%d")
+                for expiration_item in chain.get("expirations", []):
+                    raw_expiration = str(
+                        expiration_item.get("expiration-date", "")
+                    )
+                    try:
+                        if "T" in raw_expiration:
+                            expiration_date = datetime.fromisoformat(
+                                raw_expiration.replace("Z", "+00:00").replace(
+                                    "+0000", "+00:00"
+                                )
+                            )
                         else:
-                            exp_iso = exp_str[:10]
+                            expiration_date = datetime.strptime(
+                                raw_expiration, "%Y-%m-%d"
+                            )
+                        expiration = expiration_date.strftime("%Y-%m-%d")
+                    except (TypeError, ValueError):
+                        logger.warning(
+                            "Could not parse expiration date %s", raw_expiration
+                        )
+                        continue
 
-                        strikes = item.get("strikes", [])
-                        if strikes:
-                            strikes_by_expiration[exp_iso] = strikes
+                    expiration_strikes = strikes_by_expiration.setdefault(
+                        expiration, []
+                    )
+                    for strike_item in expiration_item.get("strikes", []):
+                        raw_strike = (
+                            strike_item.get("strike-price")
+                            if isinstance(strike_item, dict)
+                            else strike_item
+                        )
+                        strike = self._safe_float(raw_strike)
+                        if strike is not None:
+                            expiration_strikes.append(strike)
 
-                except Exception as e:
-                    logger.error(f"Error fetching strikes for {symbol}: {e}")
-                    # Continue with next batch
+            for expiration, strikes in strikes_by_expiration.items():
+                strikes_by_expiration[expiration] = sorted(set(strikes))
 
-            # Get underlying price from the first response
-            underlying_price = None
-            if items:
-                underlying_price = self._safe_float(items[0].get("underlying-price"))
+            expirations = sorted(strikes_by_expiration)
+            if not expirations:
+                logger.warning("No valid expirations found for %s", symbol)
+                return {
+                    "expirations": [],
+                    "strikes_by_expiration": {},
+                    "underlying_price": underlying_price,
+                }
 
-            logger.info(f"Fetched option chain for {symbol}: {len(expirations)} expirations, "
-                       f"{sum(len(s) for s in strikes_by_expiration.values())} total strike-sets")
+            logger.info(
+                "Fetched option chain for %s: %s expirations, %s strikes",
+                symbol,
+                len(expirations),
+                sum(len(strikes) for strikes in strikes_by_expiration.values()),
+            )
 
             return {
                 "expirations": expirations,
                 "strikes_by_expiration": strikes_by_expiration,
-                "underlying_price": underlying_price
+                "underlying_price": underlying_price,
             }
 
         except httpx.HTTPStatusError as e:
@@ -765,89 +1060,106 @@ class TastytradeClient:
             logger.debug(traceback.format_exc())
             return {"expirations": [], "strikes_by_expiration": {}, "underlying_price": None}
 
-    def _find_valid_expiration(
-        self,
-        symbol: str,
-        preferred_expiration: str,
-        current_price: float
-    ) -> str | None:
-        """
-        Find a valid expiration date that has options data.
+    @staticmethod
+    def _empty_volatility_smile(
+        current_price: float,
+        data_status: str = "provider_error",
+    ) -> Dict[str, Any]:
+        return {
+            "points": [],
+            "atm_iv": 0,
+            "data_status": data_status,
+            **summarize_volatility_skew([], current_price),
+        }
 
-        Tries the preferred expiration first, then searches forward monthly
-        expirations until it finds one with data.
-
-        Args:
-            symbol: Stock symbol
-            preferred_expiration: Preferred expiration in ISO format
-            current_price: Current underlying price
-
-        Returns:
-            Valid expiration date in ISO format or None
-        """
-        from datetime import datetime, timedelta
-        from calendar import monthrange
-
-        # First, try the requested expiration
-        # Test with ATM strike to see if data exists
-        test_strike = round(current_price / 10) * 10
-        result = self.get_option_greeks(symbol, test_strike, preferred_expiration, "C")
-        if result and result.get("implied_volatility"):
-            return preferred_expiration
-
-        # If not, try finding the next monthly expiration (3rd Friday)
-        exp_date = datetime.strptime(preferred_expiration, "%Y-%m-%d")
-        if exp_date.date() < datetime.now().date():
-            # Expiration is in the past, start from next month
-            exp_date = datetime.now().replace(day=1) + timedelta(days=32)
-            exp_date = exp_date.replace(day=1)
-
-        # Try up to 12 monthly expirations
-        for month_offset in range(12):
-            # Calculate 3rd Friday of the month
-            year = exp_date.year
-            month = exp_date.month + month_offset
-
-            # Handle year rollover
-            while month > 12:
-                month -= 12
-                year += 1
-
-            # Find first Friday
-            first_day = datetime(year, month, 1)
-            first_friday = (4 - first_day.weekday()) % 7 + 1
-            if first_friday < 1:
-                first_friday += 7
-
-            # 3rd Friday is first_friday + 14
-            third_friday = first_friday + 14
-
-            # Check if within month bounds
-            _, last_day = monthrange(year, month)
-            if third_friday > last_day:
-                third_friday = last_day
-
-            exp_iso = datetime(year, month, third_friday).strftime("%Y-%m-%d")
-
-            # Test this expiration
-            result = self.get_option_greeks(symbol, test_strike, exp_iso, "C")
-            if result and result.get("implied_volatility"):
-                logger.info(f"Found valid expiration: {exp_iso} (requested: {preferred_expiration})")
-                return exp_iso
-
-        return None
+    @staticmethod
+    def _is_cacheable_volatility_smile(result: Dict[str, Any]) -> bool:
+        """Only cache a smile when the provider returned usable quote data."""
+        return any(
+            point.get("call_iv") is not None or point.get("put_iv") is not None
+            for point in result.get("points", [])
+        )
 
     def get_volatility_smile(
+        self,
+        symbol: str,
+        expiration: str,
+        current_price: float,
+    ) -> Dict[str, Any]:
+        """Return a bounded cached smile and deduplicate concurrent misses."""
+        # The strike grid is generated from spot, so price belongs in the key.
+        # Market data is cached upstream, making this stable during near/far
+        # prefetch while preventing a later price snapshot from reusing it.
+        cache_key = (symbol.upper(), expiration, round(current_price, 4))
+        now = time.monotonic()
+
+        with self._skew_cache_lock:
+            cached = self._skew_cache.get(cache_key)
+            if cached is not None:
+                cached_at, cached_result = cached
+                cache_ttl = (
+                    self._skew_negative_cache_ttl_seconds
+                    if cached_result.get("data_status") == "no_quotes"
+                    else self._skew_cache_ttl_seconds
+                )
+                if now - cached_at < cache_ttl:
+                    self._skew_cache.move_to_end(cache_key)
+                    logger.info(
+                        "Volatility skew cache hit: %s %s",
+                        cache_key[0],
+                        cache_key[1],
+                    )
+                    return deepcopy(cached_result)
+                del self._skew_cache[cache_key]
+
+            future = self._skew_inflight.get(cache_key)
+            is_owner = future is None
+            if future is None:
+                future = Future()
+                self._skew_inflight[cache_key] = future
+
+        if not is_owner:
+            logger.info(
+                "Joining in-flight volatility skew request: %s %s",
+                cache_key[0],
+                cache_key[1],
+            )
+            return deepcopy(future.result())
+
+        try:
+            result = self._fetch_volatility_smile(
+                cache_key[0], expiration, current_price
+            )
+        except Exception as exc:
+            logger.exception(
+                "Unexpected error fetching volatility smile for %s: %s",
+                cache_key[0],
+                exc,
+            )
+            result = self._empty_volatility_smile(current_price)
+
+        with self._skew_cache_lock:
+            if (
+                self._is_cacheable_volatility_smile(result)
+                or result.get("data_status") == "no_quotes"
+            ):
+                self._skew_cache[cache_key] = (time.monotonic(), deepcopy(result))
+                self._skew_cache.move_to_end(cache_key)
+                while len(self._skew_cache) > self._skew_cache_max_entries:
+                    self._skew_cache.popitem(last=False)
+            self._skew_inflight.pop(cache_key, None)
+            future.set_result(deepcopy(result))
+
+        return deepcopy(result)
+
+    def _fetch_volatility_smile(
         self,
         symbol: str,
         expiration: str,
         current_price: float
     ) -> Dict[str, Any]:
         """
-        Fetch volatility smile data for a specific expiration.
-
-        If the requested expiration doesn't have data, attempts to find
-        the next available monthly expiration.
+        Fetch volatility smile data for the exact requested expiration.
 
         Args:
             symbol: Stock symbol
@@ -863,34 +1175,15 @@ class TastytradeClient:
                 - call_selection/put_selection: legs used for the metric
         """
         if not self._ensure_token():
-            return {
-                "points": [],
-                "atm_iv": 0,
-                **summarize_volatility_skew([], current_price),
-            }
+            return self._empty_volatility_smile(current_price)
 
         try:
-            # Find a valid expiration (may differ from requested)
-            valid_expiration = self._find_valid_expiration(symbol, expiration, current_price)
-
-            if not valid_expiration:
-                logger.warning(f"Could not find valid expiration for {symbol}")
-                return {
-                    "points": [],
-                    "atm_iv": 0,
-                    **summarize_volatility_skew([], current_price),
-                }
-
             # Generate strikes dynamically around current price
             filtered_strikes = self._generate_strikes_around_price(current_price)
 
             if not filtered_strikes:
                 logger.warning(f"Could not generate strikes for {symbol} at price {current_price}")
-                return {
-                    "points": [],
-                    "atm_iv": 0,
-                    **summarize_volatility_skew([], current_price),
-                }
+                return self._empty_volatility_smile(current_price)
 
             # Build positions list for batch fetch
             positions = []
@@ -898,13 +1191,13 @@ class TastytradeClient:
                 positions.append({
                     "symbol": symbol,
                     "strike": strike,
-                    "expiration_date": valid_expiration,
+                    "expiration_date": expiration,
                     "option_type": "C"
                 })
                 positions.append({
                     "symbol": symbol,
                     "strike": strike,
-                    "expiration_date": valid_expiration,
+                    "expiration_date": expiration,
                     "option_type": "P"
                 })
 
@@ -917,8 +1210,8 @@ class TastytradeClient:
             nearest_distance = float('inf')
 
             for strike in filtered_strikes:
-                call_key = f"{symbol}_{strike}_{valid_expiration}_C"
-                put_key = f"{symbol}_{strike}_{valid_expiration}_P"
+                call_key = f"{symbol}_{strike}_{expiration}_C"
+                put_key = f"{symbol}_{strike}_{expiration}_P"
 
                 call_data = greeks_data.get(call_key)
                 put_data = greeks_data.get(put_key)
@@ -952,6 +1245,8 @@ class TastytradeClient:
                 points.append(point)
 
             skew_summary = summarize_volatility_skew(points, current_price)
+            has_quotes = self._is_cacheable_volatility_smile({"points": points})
+            data_status = "ok" if has_quotes else "no_quotes"
 
             logger.info(f"Fetched volatility smile for {symbol} {expiration}: "
                        f"{len(points)} strikes, ATM IV={atm_iv:.2%}, "
@@ -960,6 +1255,7 @@ class TastytradeClient:
             return {
                 "points": points,
                 "atm_iv": atm_iv,
+                "data_status": data_status,
                 **skew_summary,
             }
 
@@ -967,11 +1263,7 @@ class TastytradeClient:
             logger.error(f"Error fetching volatility smile for {symbol}: {e}")
             import traceback
             logger.debug(traceback.format_exc())
-            return {
-                "points": [],
-                "atm_iv": 0,
-                **summarize_volatility_skew([], current_price),
-            }
+            return self._empty_volatility_smile(current_price)
 
     def _safe_float(self, value: Any, divide_by: float = 1, multiply_by: float = 1) -> Optional[float]:
         """Safely convert value to float with optional scaling"""
@@ -994,11 +1286,24 @@ class TastytradeClient:
 
 # Global singleton instance
 _tastytrade_client: Optional[TastytradeClient] = None
+_tastytrade_client_lock = threading.Lock()
 
 
 def get_tastytrade_client() -> TastytradeClient:
     """Get or create the global Tastytrade client instance"""
     global _tastytrade_client
     if _tastytrade_client is None:
-        _tastytrade_client = TastytradeClient()
+        with _tastytrade_client_lock:
+            if _tastytrade_client is None:
+                _tastytrade_client = TastytradeClient()
     return _tastytrade_client
+
+
+def close_tastytrade_client() -> None:
+    """Release the singleton's persistent HTTP pool during app shutdown."""
+    global _tastytrade_client
+    with _tastytrade_client_lock:
+        client = _tastytrade_client
+        _tastytrade_client = None
+    if client is not None:
+        client.close()

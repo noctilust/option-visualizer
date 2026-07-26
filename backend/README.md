@@ -28,6 +28,17 @@ uv run uvicorn main:app --reload --port 8000
 | `DEFAULT_IMPLIED_VOLATILITY` | Override implied volatility | `0.25` |
 | `MARKET_DATA_CACHE_MINUTES` | Cache duration | `30` |
 | `CORS_ORIGINS` | Allowed CORS origins (comma-separated) | localhost |
+| `TASTYTRADE_MAX_CONCURRENT_REQUESTS` | Process-wide upstream request concurrency | `2` |
+| `TASTYTRADE_MIN_REQUEST_INTERVAL_SECONDS` | Minimum time between upstream request starts | `0.25` |
+| `TASTYTRADE_RATE_LIMIT_RETRIES` | Retries after HTTP 429 | `2` |
+| `TASTYTRADE_RATE_LIMIT_MAX_DELAY_SECONDS` | Largest Retry-After delay handled in-process | `30` |
+| `TASTYTRADE_SKEW_CACHE_SECONDS` | Whole-skew cache TTL | `300` |
+| `TASTYTRADE_SKEW_NEGATIVE_CACHE_SECONDS` | Quote-less skew cycle cache TTL | `45` |
+| `TASTYTRADE_SKEW_CACHE_MAX_ENTRIES` | Whole-skew LRU capacity | `32` |
+| `TASTYTRADE_OPTION_CHAIN_CACHE_SECONDS` | Option-chain cache TTL | `300` |
+| `TASTYTRADE_OPTION_CHAIN_CACHE_MAX_ENTRIES` | Option-chain LRU capacity | `32` |
+| `TASTYTRADE_GREEKS_CACHE_SECONDS` | Per-contract Greeks cache TTL | `300` |
+| `TASTYTRADE_GREEKS_CACHE_MAX_ENTRIES` | Per-contract Greeks LRU capacity | `4096` |
 
 ## API Endpoints
 

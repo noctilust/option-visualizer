@@ -1,5 +1,7 @@
-import { useMemo, useState, useRef, useEffect } from 'react';
+import { useCallback, useMemo, useState, useRef, useEffect } from 'react';
 import { useOptionChain } from '../hooks/useOptionChain';
+
+const PREVIEW_DELAY_MS = 150;
 
 interface ExpirationOption {
   value: string;  // ISO format YYYY-MM-DD
@@ -15,6 +17,15 @@ interface ExpirationDropdownProps {
   isDark?: boolean;
   symbol?: string;
   compact?: boolean;
+  /** Select the nearest future standard monthly expiration when no value is set. */
+  autoSelectNextMonthly?: boolean;
+  /** Temporarily preview an expiration without committing the selection. */
+  onPreviewChange?: (value: string | null) => void;
+  /** Report the resolved expiration list and whether it came from the live chain. */
+  onExpirationsResolved?: (
+    expirations: string[],
+    source: 'api' | 'fallback',
+  ) => void;
   /**
    * Format of the value prop and onChange callback:
    * - 'iso': YYYY-MM-DD (default)
@@ -173,22 +184,37 @@ export default function ExpirationDropdown({
   onChange,
   compact = false,
   symbol = '',
+  autoSelectNextMonthly = false,
+  onPreviewChange,
+  onExpirationsResolved,
   valueFormat = 'iso'
 }: ExpirationDropdownProps) {
   const [isOpen, setIsOpen] = useState(false);
   const [dropdownPosition, setDropdownPosition] = useState({ top: 0, left: 0, width: 0 });
   const dropdownRef = useRef<HTMLDivElement>(null);
   const buttonRef = useRef<HTMLButtonElement>(null);
+  const previewTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Fetch real expirations from API
-  const { chainData, loading: apiLoading, fetchOptionChain } = useOptionChain();
+  const {
+    chainData,
+    loading: apiLoading,
+    error: apiError,
+    resolvedSymbol,
+    fetchOptionChain,
+    clearOptionChain,
+  } = useOptionChain();
 
   // Fetch expirations when symbol changes
   useEffect(() => {
     if (symbol && symbol.trim() !== '') {
-      fetchOptionChain(symbol);
+      void fetchOptionChain(symbol);
+    } else {
+      clearOptionChain();
     }
-  }, [symbol, fetchOptionChain]);
+  }, [clearOptionChain, symbol, fetchOptionChain]);
+
+  const normalizedSymbol = symbol.trim().toUpperCase();
 
   // Generate fallback expirations
   const fallbackWeekly = useMemo(() => generateWeeklyExpirations(12), []);
@@ -213,6 +239,28 @@ export default function ExpirationDropdown({
     return fallbackOptions;
   }, [chainData, fallbackOptions]);
 
+  useEffect(() => {
+    if (!onExpirationsResolved || !normalizedSymbol) return;
+    if (resolvedSymbol !== normalizedSymbol) return;
+    if (apiLoading || (!chainData && !apiError)) return;
+
+    const source = chainData && chainData.expirations.length > 0
+      ? 'api'
+      : 'fallback';
+    onExpirationsResolved(
+      allOptions.map(expiration => expiration.value),
+      source,
+    );
+  }, [
+    allOptions,
+    apiError,
+    apiLoading,
+    chainData,
+    onExpirationsResolved,
+    normalizedSymbol,
+    resolvedSymbol,
+  ]);
+
   // Convert current value to ISO for internal matching
   const currentValueIso = useMemo(() => {
     if (valueFormat === 'position') {
@@ -220,6 +268,61 @@ export default function ExpirationDropdown({
     }
     return value;
   }, [value, valueFormat]);
+
+  const formatExpirationValue = useCallback((isoValue: string) => (
+    valueFormat === 'position' ? isoToPosition(isoValue) : isoValue
+  ), [valueFormat]);
+
+  const cancelPreviewTimer = useCallback(() => {
+    if (previewTimeoutRef.current) {
+      clearTimeout(previewTimeoutRef.current);
+      previewTimeoutRef.current = null;
+    }
+  }, []);
+
+  const clearPreview = useCallback(() => {
+    cancelPreviewTimer();
+    onPreviewChange?.(null);
+  }, [cancelPreviewTimer, onPreviewChange]);
+
+  const schedulePreview = useCallback((isoValue: string) => {
+    cancelPreviewTimer();
+    if (!onPreviewChange) return;
+
+    previewTimeoutRef.current = setTimeout(() => {
+      onPreviewChange(formatExpirationValue(isoValue));
+      previewTimeoutRef.current = null;
+    }, PREVIEW_DELAY_MS);
+  }, [cancelPreviewTimer, formatExpirationValue, onPreviewChange]);
+
+  useEffect(() => () => cancelPreviewTimer(), [cancelPreviewTimer]);
+
+  useEffect(() => {
+    if (!autoSelectNextMonthly || currentValueIso || !normalizedSymbol) return;
+    if (resolvedSymbol !== normalizedSymbol) return;
+    if (apiLoading || (!chainData && !apiError)) return;
+
+    const apiMonthlyExpiration = chainData?.expirations.find(expiration => !expiration.isWeekly);
+    const canUseFallback = !!apiError || chainData?.expirations.length === 0;
+    const nextMonthlyExpiration =
+      apiMonthlyExpiration
+      ?? (canUseFallback ? fallbackMonthly[0] : undefined);
+
+    if (!nextMonthlyExpiration) return;
+
+    onChange(formatExpirationValue(nextMonthlyExpiration.value));
+  }, [
+    apiError,
+    apiLoading,
+    autoSelectNextMonthly,
+    chainData,
+    currentValueIso,
+    fallbackMonthly,
+    formatExpirationValue,
+    onChange,
+    normalizedSymbol,
+    resolvedSymbol,
+  ]);
 
   // If current selection isn't in the list, add it
   const options = useMemo(() => {
@@ -253,11 +356,8 @@ export default function ExpirationDropdown({
   const currentOption = options.find(opt => opt.value === currentValueIso);
 
   const handleSelect = (isoValue: string) => {
-    if (valueFormat === 'position') {
-      onChange(isoToPosition(isoValue));
-    } else {
-      onChange(isoValue);
-    }
+    clearPreview();
+    onChange(formatExpirationValue(isoValue));
     setIsOpen(false);
   };
 
@@ -282,6 +382,7 @@ export default function ExpirationDropdown({
         !buttonRef.current.contains(event.target as Node)
       ) {
         setIsOpen(false);
+        clearPreview();
       }
     };
 
@@ -297,14 +398,17 @@ export default function ExpirationDropdown({
       window.removeEventListener('scroll', updateDropdownPosition, true);
       window.removeEventListener('resize', updateDropdownPosition);
     };
-  }, [isOpen]);
+  }, [clearPreview, isOpen]);
 
   return (
     <div className="relative">
       {/* Trigger button */}
       <button
         ref={buttonRef}
-        onClick={() => setIsOpen(!isOpen)}
+        onClick={() => {
+          if (isOpen) clearPreview();
+          setIsOpen(!isOpen);
+        }}
         className={`border border-border rounded bg-background text-foreground cursor-pointer focus:outline-none focus:ring-2 focus:ring-primary flex items-center justify-between whitespace-nowrap ${
           compact ? 'px-1.5 py-0.5 text-xs w-20' : 'px-2 py-1 text-sm w-[155px]'
         }`}
@@ -349,6 +453,14 @@ export default function ExpirationDropdown({
       {isOpen && (
         <div
           ref={dropdownRef}
+          role="listbox"
+          aria-label="Expiration cycles"
+          onMouseLeave={clearPreview}
+          onBlur={(event) => {
+            if (!event.currentTarget.contains(event.relatedTarget)) {
+              clearPreview();
+            }
+          }}
           className="fixed z-50 rounded border border-border bg-popover shadow-lg overflow-auto"
           style={{
             maxHeight: '400px',
@@ -359,17 +471,22 @@ export default function ExpirationDropdown({
         >
           {/* Header */}
           <div className="px-2 py-1.5 text-xs font-medium border-b border-border text-muted-foreground">
-            {apiLoading ? 'Loading...' : 'Select Expirations'}
+            {apiLoading ? 'Loading...' : 'Hover to preview'}
           </div>
 
           {/* Options */}
           {options.map(opt => {
             const isSelected = opt.value === currentValueIso;
             return (
-              <div
+              <button
+                type="button"
+                role="option"
+                aria-selected={isSelected}
                 key={opt.value}
+                onMouseEnter={() => schedulePreview(opt.value)}
+                onFocus={() => schedulePreview(opt.value)}
                 onClick={() => handleSelect(opt.value)}
-                className={`px-2 py-1.5 cursor-pointer flex items-center gap-2 text-popover-foreground transition-colors ${
+                className={`w-full px-2 py-1.5 cursor-pointer flex items-center gap-2 text-left text-popover-foreground transition-colors ${
                   isSelected ? 'bg-primary/15' : 'hover:bg-muted'
                 }`}
               >
@@ -396,7 +513,7 @@ export default function ExpirationDropdown({
                     W
                   </span>
                 )}
-              </div>
+              </button>
             );
           })}
         </div>
