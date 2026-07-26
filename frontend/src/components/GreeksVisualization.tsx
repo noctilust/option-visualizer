@@ -1,12 +1,13 @@
-import { useState, Fragment } from 'react';
+import { useState, useMemo, Fragment } from 'react';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, ReferenceLine, ReferenceDot } from 'recharts';
 import { TrendingUp, Activity } from 'lucide-react';
-import type { ChartDataPoint, PortfolioGreeks, MarketData } from '../types';
+import type { ChartDataPoint, PortfolioGreeks, MarketData, ZoomRange } from '../types';
 
 interface GreeksVisualizationProps {
   chartData: ChartDataPoint[];
   portfolioGreeks: PortfolioGreeks | null;
   marketData: MarketData | null;
+  zoomRange: ZoomRange;
 }
 
 interface GreekConfig {
@@ -50,7 +51,11 @@ const greekConfig: Record<keyof SelectedGreeks, GreekConfig> = {
   }
 };
 
-export default function GreeksVisualization({ chartData, marketData }: GreeksVisualizationProps) {
+export default function GreeksVisualization({
+  chartData,
+  marketData,
+  zoomRange,
+}: GreeksVisualizationProps) {
   const [selectedGreeks, setSelectedGreeks] = useState<SelectedGreeks>({
     delta: true,
     gamma: true,
@@ -58,7 +63,15 @@ export default function GreeksVisualization({ chartData, marketData }: GreeksVis
     vega: true
   });
 
-  if (!chartData || chartData.length === 0) {
+  const visibleChartData = useMemo(() => {
+    if (!chartData.length) return [];
+
+    const start = zoomRange.startIndex;
+    const end = zoomRange.endIndex || chartData.length - 1;
+    return chartData.slice(start, end + 1);
+  }, [chartData, zoomRange]);
+
+  if (visibleChartData.length === 0) {
     return null;
   }
 
@@ -70,7 +83,7 @@ export default function GreeksVisualization({ chartData, marketData }: GreeksVis
   };
 
   // Check if we have Greeks data in chartData
-  const hasGreeksData = chartData.some(d =>
+  const hasGreeksData = visibleChartData.some(d =>
     d.delta !== undefined ||
     d.gamma !== undefined ||
     d.theta !== undefined ||
@@ -137,7 +150,7 @@ export default function GreeksVisualization({ chartData, marketData }: GreeksVis
         <div className="bg-card border rounded-lg p-4">
           <ResponsiveContainer width="100%" height={400}>
             <LineChart
-              data={chartData}
+              data={visibleChartData}
               margin={{ top: 10, right: 10, left: 10, bottom: 20 }}
             >
               <CartesianGrid strokeDasharray="3 3" stroke="#8a8a8a" opacity={0.2} />

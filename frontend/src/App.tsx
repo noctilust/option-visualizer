@@ -599,6 +599,7 @@ function App() {
                       chartData={chartData}
                       portfolioGreeks={portfolioGreeks}
                       marketData={marketData}
+                      zoomRange={deferredZoomRange}
                     />
                   </Suspense>
                 </div>
