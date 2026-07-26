@@ -224,11 +224,24 @@ async def upload_image(file: UploadFile = File(...)):
     try:
         contents = await file.read()
         positions = image_parser.parse_screenshot(contents)
-        if not positions:
-            positions = []
         return {"positions": positions}
+    except image_parser.InvalidImageError as e:
+        raise HTTPException(
+            status_code=400,
+            detail="The uploaded file is not a readable image",
+        ) from e
+    except image_parser.OCRConfigurationError as e:
+        raise HTTPException(
+            status_code=503,
+            detail="Position recognition is not configured",
+        ) from e
+    except image_parser.OCRProcessingError as e:
+        raise HTTPException(
+            status_code=502,
+            detail="Position recognition is temporarily unavailable",
+        ) from e
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail="Image upload failed") from e
 
 @app.post("/calculate")
 def calculate_pl(request: CalculateRequest):

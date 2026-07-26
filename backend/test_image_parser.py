@@ -46,10 +46,57 @@ def test_prepare_image_resizes_longest_side(monkeypatch):
     assert mime_type == "image/png"
 
 
-@pytest.mark.parametrize("field,value", [("qty", 0), ("type", "X")])
+@pytest.mark.parametrize(
+    "field,value",
+    [
+        ("qty", 0),
+        ("strike", 0),
+        ("strike", -1),
+        ("strike", float("nan")),
+        ("strike", float("inf")),
+        ("strike", float("-inf")),
+        ("type", "X"),
+    ],
+)
 def test_ocr_position_rejects_invalid_domain_values(field, value):
     data = {"qty": 1, "expiration": "Jan 16", "strike": 150, "type": "C"}
     data[field] = value
 
     with pytest.raises(ValidationError):
         image_parser.OCRPosition.model_validate(data)
+
+
+def test_parse_screenshot_raises_when_gemini_generation_fails(monkeypatch):
+    fake_client = MagicMock()
+    fake_client.__enter__.return_value = fake_client
+    fake_client.models.generate_content.side_effect = RuntimeError("provider unavailable")
+    monkeypatch.setattr(image_parser, "api_key", "test-key")
+    monkeypatch.setattr(image_parser.genai, "Client", lambda api_key: fake_client)
+
+    with pytest.raises(
+        image_parser.OCRProcessingError,
+        match="Position recognition failed",
+    ):
+        image_parser.parse_screenshot(make_png())
+
+    fake_client.__exit__.assert_called_once()
+
+
+def test_parse_screenshot_distinguishes_missing_configuration(monkeypatch):
+    monkeypatch.setattr(image_parser, "api_key", None)
+
+    with pytest.raises(
+        image_parser.OCRConfigurationError,
+        match="not configured",
+    ):
+        image_parser.parse_screenshot(make_png())
+
+
+def test_parse_screenshot_rejects_unreadable_image(monkeypatch):
+    monkeypatch.setattr(image_parser, "api_key", "test-key")
+
+    with pytest.raises(
+        image_parser.InvalidImageError,
+        match="not a readable image",
+    ):
+        image_parser.parse_screenshot(b"not an image")

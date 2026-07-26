@@ -1,5 +1,6 @@
 import pytest
 from fastapi.testclient import TestClient
+import image_parser
 from main import app
 
 
@@ -56,6 +57,63 @@ class TestCORSConfiguration:
         )
         allowed_headers = response.headers.get("access-control-allow-headers", "")
         assert "content-type" in allowed_headers.lower()
+
+
+class TestUploadEndpoint:
+    def test_upload_keeps_a_genuine_empty_result(self, monkeypatch):
+        monkeypatch.setattr(image_parser, "parse_screenshot", lambda _contents: [])
+
+        response = client.post(
+            "/upload",
+            files={"file": ("positions.png", b"image", "image/png")},
+        )
+
+        assert response.status_code == 200
+        assert response.json() == {"positions": []}
+
+    def test_upload_distinguishes_recognition_failure_from_no_positions(
+        self, monkeypatch
+    ):
+        def fail_recognition(_contents):
+            raise image_parser.OCRProcessingError("internal provider detail")
+
+        monkeypatch.setattr(image_parser, "parse_screenshot", fail_recognition)
+
+        response = client.post(
+            "/upload",
+            files={"file": ("positions.png", b"image", "image/png")},
+        )
+
+        assert response.status_code == 502
+        assert response.json() == {
+            "detail": "Position recognition is temporarily unavailable"
+        }
+
+    def test_upload_rejects_an_unreadable_image(self, monkeypatch):
+        monkeypatch.setattr(image_parser, "api_key", "test-key")
+
+        response = client.post(
+            "/upload",
+            files={"file": ("positions.png", b"not an image", "image/png")},
+        )
+
+        assert response.status_code == 400
+        assert response.json() == {
+            "detail": "The uploaded file is not a readable image"
+        }
+
+    def test_upload_reports_missing_recognition_configuration(self, monkeypatch):
+        monkeypatch.setattr(image_parser, "api_key", None)
+
+        response = client.post(
+            "/upload",
+            files={"file": ("positions.png", b"image", "image/png")},
+        )
+
+        assert response.status_code == 503
+        assert response.json() == {
+            "detail": "Position recognition is not configured"
+        }
 
 
 class TestCalculateEndpoint:
