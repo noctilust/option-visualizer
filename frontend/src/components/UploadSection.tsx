@@ -24,6 +24,30 @@ export default function UploadSection({ onFileSelect, onManualEntry, resetKey, l
     setDragActive(false);
   }, [resetKey]);
 
+  const selectFile = useCallback((file: File) => {
+    setSelectedFile(file);
+    onFileSelect(file);
+  }, [onFileSelect]);
+
+  useEffect(() => {
+    if (mode !== 'upload' || selectedFile || loading) return;
+
+    const handlePaste = (event: ClipboardEvent) => {
+      const imageItem = Array.from(event.clipboardData?.items ?? []).find(
+        item => item.kind === 'file' && item.type.startsWith('image/')
+      );
+      const file = imageItem?.getAsFile();
+
+      if (!file) return;
+
+      event.preventDefault();
+      selectFile(file);
+    };
+
+    window.addEventListener('paste', handlePaste);
+    return () => window.removeEventListener('paste', handlePaste);
+  }, [loading, mode, selectFile, selectedFile]);
+
   const handleDrag = useCallback((e: DragEvent<HTMLLabelElement>) => {
     e.preventDefault();
     e.stopPropagation();
@@ -40,19 +64,17 @@ export default function UploadSection({ onFileSelect, onManualEntry, resetKey, l
     setDragActive(false);
     if (e.dataTransfer.files && e.dataTransfer.files[0]) {
       const file = e.dataTransfer.files[0];
-      setSelectedFile(file);
-      onFileSelect(file);
+      selectFile(file);
     }
-  }, [onFileSelect]);
+  }, [selectFile]);
 
   const handleChange = useCallback((e: ChangeEvent<HTMLInputElement>) => {
     e.preventDefault();
     if (e.target.files && e.target.files[0]) {
       const file = e.target.files[0];
-      setSelectedFile(file);
-      onFileSelect(file);
+      selectFile(file);
     }
-  }, [onFileSelect]);
+  }, [selectFile]);
 
   const removeFile = () => {
     setSelectedFile(null);
@@ -114,7 +136,7 @@ export default function UploadSection({ onFileSelect, onManualEntry, resetKey, l
               </div>
               <h3 className="text-base font-semibold text-foreground mb-1">Upload Screenshot</h3>
               <p className="text-xs text-muted-foreground text-center">
-                PNG, JPG or GIF of your positions
+                Upload, drop, or paste an image of your positions
               </p>
             </div>
           </button>
@@ -141,8 +163,17 @@ export default function UploadSection({ onFileSelect, onManualEntry, resetKey, l
                 <div className="flex flex-col items-center justify-center pt-5 pb-6">
                   <Upload className="w-10 h-10 mb-3 text-muted-foreground" />
                   <p className="mb-2 text-sm text-muted-foreground">
-                    <span className="font-semibold">Click to upload</span> or drag and drop
+                    <span className="font-semibold">Click to upload</span>, drag and drop, or paste
                   </p>
+                  <div className="mb-3 flex items-center gap-2 text-[11px] text-muted-foreground">
+                    <kbd className="rounded border border-border bg-muted px-1.5 py-0.5 font-mono text-foreground">
+                      ⌘ V
+                    </kbd>
+                    <span>or</span>
+                    <kbd className="rounded border border-border bg-muted px-1.5 py-0.5 font-mono text-foreground">
+                      Ctrl V
+                    </kbd>
+                  </div>
                   <p className="text-xs text-muted-foreground">
                     PNG, JPG or GIF (Screenshot of positions)
                   </p>
