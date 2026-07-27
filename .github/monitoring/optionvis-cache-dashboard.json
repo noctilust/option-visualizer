@@ -1,0 +1,216 @@
+{
+  "displayName": "OptionVis shared cache",
+  "mosaicLayout": {
+    "columns": 12,
+    "tiles": [
+      {
+        "width": 6,
+        "height": 4,
+        "widget": {
+          "title": "Valkey memory utilization",
+          "xyChart": {
+            "dataSets": [{
+              "timeSeriesQuery": {
+                "timeSeriesFilter": {
+                  "filter": "resource.type=\"memorystore.googleapis.com/Instance\" AND resource.label.\"instance_id\"=\"optionvis-cache\" AND metric.type=\"memorystore.googleapis.com/instance/memory/maximum_utilization\"",
+                  "aggregation": {
+                    "alignmentPeriod": "60s",
+                    "perSeriesAligner": "ALIGN_MEAN"
+                  }
+                }
+              },
+              "plotType": "LINE"
+            }],
+            "yAxis": {"label": "utilization", "scale": "LINEAR"}
+          }
+        }
+      },
+      {
+        "xPos": 6,
+        "width": 6,
+        "height": 4,
+        "widget": {
+          "title": "Valkey CPU utilization",
+          "xyChart": {
+            "dataSets": [{
+              "timeSeriesQuery": {
+                "timeSeriesFilter": {
+                  "filter": "resource.type=\"memorystore.googleapis.com/Instance\" AND resource.label.\"instance_id\"=\"optionvis-cache\" AND metric.type=\"memorystore.googleapis.com/instance/cpu/maximum_utilization\"",
+                  "aggregation": {
+                    "alignmentPeriod": "60s",
+                    "perSeriesAligner": "ALIGN_MEAN"
+                  }
+                }
+              },
+              "plotType": "LINE"
+            }],
+            "yAxis": {"label": "utilization", "scale": "LINEAR"}
+          }
+        }
+      },
+      {
+        "yPos": 4,
+        "width": 6,
+        "height": 4,
+        "widget": {
+          "title": "Connected and rejected clients",
+          "xyChart": {
+            "dataSets": [
+              {
+                "timeSeriesQuery": {
+                  "timeSeriesFilter": {
+                    "filter": "resource.type=\"memorystore.googleapis.com/Instance\" AND resource.label.\"instance_id\"=\"optionvis-cache\" AND metric.type=\"memorystore.googleapis.com/instance/clients/total_connected_clients\"",
+                    "aggregation": {
+                      "alignmentPeriod": "60s",
+                      "perSeriesAligner": "ALIGN_MEAN"
+                    }
+                  }
+                },
+                "plotType": "LINE",
+                "legendTemplate": "connected"
+              },
+              {
+                "timeSeriesQuery": {
+                  "timeSeriesFilter": {
+                    "filter": "resource.type=\"memorystore.googleapis.com/Instance\" AND resource.label.\"instance_id\"=\"optionvis-cache\" AND metric.type=\"memorystore.googleapis.com/instance/stats/total_rejected_connections_count\"",
+                    "aggregation": {
+                      "alignmentPeriod": "60s",
+                      "perSeriesAligner": "ALIGN_DELTA"
+                    }
+                  }
+                },
+                "plotType": "LINE",
+                "legendTemplate": "rejected"
+              }
+            ],
+            "yAxis": {"label": "clients", "scale": "LINEAR"}
+          }
+        }
+      },
+      {
+        "xPos": 6,
+        "yPos": 4,
+        "width": 6,
+        "height": 4,
+        "widget": {
+          "title": "Keyspace hits, misses, and evictions",
+          "xyChart": {
+            "dataSets": [
+              {
+                "timeSeriesQuery": {
+                  "timeSeriesFilter": {
+                    "filter": "resource.type=\"memorystore.googleapis.com/Instance\" AND resource.label.\"instance_id\"=\"optionvis-cache\" AND metric.type=\"memorystore.googleapis.com/instance/stats/total_keyspace_hits_count\"",
+                    "aggregation": {
+                      "alignmentPeriod": "60s",
+                      "perSeriesAligner": "ALIGN_RATE"
+                    }
+                  }
+                },
+                "plotType": "LINE",
+                "legendTemplate": "hits/sec"
+              },
+              {
+                "timeSeriesQuery": {
+                  "timeSeriesFilter": {
+                    "filter": "resource.type=\"memorystore.googleapis.com/Instance\" AND resource.label.\"instance_id\"=\"optionvis-cache\" AND metric.type=\"memorystore.googleapis.com/instance/stats/total_keyspace_misses_count\"",
+                    "aggregation": {
+                      "alignmentPeriod": "60s",
+                      "perSeriesAligner": "ALIGN_RATE"
+                    }
+                  }
+                },
+                "plotType": "LINE",
+                "legendTemplate": "misses/sec"
+              },
+              {
+                "timeSeriesQuery": {
+                  "timeSeriesFilter": {
+                    "filter": "resource.type=\"memorystore.googleapis.com/Instance\" AND resource.label.\"instance_id\"=\"optionvis-cache\" AND metric.type=\"memorystore.googleapis.com/instance/stats/total_evicted_keys_count\"",
+                    "aggregation": {
+                      "alignmentPeriod": "60s",
+                      "perSeriesAligner": "ALIGN_RATE"
+                    }
+                  }
+                },
+                "plotType": "LINE",
+                "legendTemplate": "evictions/sec"
+              }
+            ],
+            "yAxis": {"label": "operations/sec", "scale": "LINEAR"}
+          }
+        }
+      },
+      {
+        "yPos": 8,
+        "width": 6,
+        "height": 4,
+        "widget": {
+          "title": "Cloud Run request latency",
+          "xyChart": {
+            "dataSets": [{
+              "timeSeriesQuery": {
+                "timeSeriesFilter": {
+                  "filter": "resource.type=\"cloud_run_revision\" AND resource.label.\"service_name\"=\"option-visualizer\" AND metric.type=\"run.googleapis.com/request_latencies\"",
+                  "aggregation": {
+                    "alignmentPeriod": "60s",
+                    "perSeriesAligner": "ALIGN_PERCENTILE_95"
+                  }
+                }
+              },
+              "plotType": "LINE",
+              "legendTemplate": "p95"
+            }],
+            "yAxis": {"label": "ms", "scale": "LINEAR"}
+          }
+        }
+      },
+      {
+        "xPos": 6,
+        "yPos": 8,
+        "width": 6,
+        "height": 4,
+        "widget": {
+          "title": "Cloud Run 5xx responses",
+          "xyChart": {
+            "dataSets": [{
+              "timeSeriesQuery": {
+                "timeSeriesFilter": {
+                  "filter": "resource.type=\"cloud_run_revision\" AND resource.label.\"service_name\"=\"option-visualizer\" AND metric.type=\"run.googleapis.com/request_count\" AND metric.label.\"response_code_class\"=\"5xx\"",
+                  "aggregation": {
+                    "alignmentPeriod": "60s",
+                    "perSeriesAligner": "ALIGN_RATE"
+                  }
+                }
+              },
+              "plotType": "LINE"
+            }],
+            "yAxis": {"label": "errors/sec", "scale": "LINEAR"}
+          }
+        }
+      },
+      {
+        "yPos": 12,
+        "width": 12,
+        "height": 4,
+        "widget": {
+          "title": "Application shared-cache errors",
+          "xyChart": {
+            "dataSets": [{
+              "timeSeriesQuery": {
+                "timeSeriesFilter": {
+                  "filter": "metric.type=\"logging.googleapis.com/user/optionvis_cache_errors\"",
+                  "aggregation": {
+                    "alignmentPeriod": "60s",
+                    "perSeriesAligner": "ALIGN_RATE"
+                  }
+                }
+              },
+              "plotType": "LINE"
+            }],
+            "yAxis": {"label": "errors/sec", "scale": "LINEAR"}
+          }
+        }
+      }
+    ]
+  }
+}

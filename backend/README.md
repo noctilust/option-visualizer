@@ -39,6 +39,22 @@ uv run uvicorn main:app --reload --port 8000
 | `TASTYTRADE_OPTION_CHAIN_CACHE_MAX_ENTRIES` | Option-chain LRU capacity | `32` |
 | `TASTYTRADE_GREEKS_CACHE_SECONDS` | Per-contract Greeks cache TTL | `300` |
 | `TASTYTRADE_GREEKS_CACHE_MAX_ENTRIES` | Per-contract Greeks LRU capacity | `4096` |
+| `SHARED_CACHE_ENABLED` | Enable fail-open shared Valkey L2 caching | `false` |
+| `VALKEY_HOST` | Private Memorystore PSC endpoint | unset |
+| `VALKEY_PORT` | Valkey endpoint port | `6379` |
+| `VALKEY_USERNAME` | Basic token AUTH user | `default` |
+| `VALKEY_PASSWORD` | Basic token from Secret Manager | unset |
+| `VALKEY_MAX_CONNECTIONS` | Blocking pool limit per Cloud Run instance | `20` |
+| `VALKEY_CONNECT_TIMEOUT_SECONDS` | Connection timeout before fail-open fallback | `0.2` |
+| `VALKEY_SOCKET_TIMEOUT_SECONDS` | Read/write and pool wait timeout | `0.2` |
+
+The shared cache is an optional L2 behind the existing process-local L1
+caches. Reads follow L1 → Valkey → provider. Valkey timeouts, authentication
+errors, malformed values, and pool exhaustion are treated as cache misses, so
+the API remains functional when the cache is unavailable.
+
+See [Shared Valkey cache operations](../docs/shared-valkey-cache.md) for GCP
+provisioning, security, monitoring, rollout, and rollback details.
 
 ## API Endpoints
 

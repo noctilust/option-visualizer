@@ -1,4 +1,5 @@
 import inspect
+import json
 import threading
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta
@@ -8,6 +9,7 @@ import httpx
 import tastytrade_client as tastytrade_module
 from main import get_option_chain as get_option_chain_route
 from main import get_volatility_skew
+from shared_cache import SharedCache, build_cache_key
 from tastytrade_client import TastytradeClient
 
 
@@ -25,6 +27,25 @@ class FakeHttpClient:
             json=payload,
             request=httpx.Request(method, url),
         )
+
+
+class InMemoryRedis:
+    def __init__(self):
+        self.values = {}
+        self.expirations = {}
+
+    def get(self, key):
+        return self.values.get(key)
+
+    def set(self, key, value, ex=None, nx=False):
+        if nx and key in self.values:
+            return False
+        self.values[key] = value
+        self.expirations[key] = ex
+        return True
+
+    def close(self):
+        return None
 
 
 def usable_smile(iv=0.25):
@@ -106,6 +127,137 @@ def test_empty_provider_result_is_not_cached(monkeypatch):
     assert client._skew_cache == {}
 
 
+def test_skew_result_is_shared_across_instances_and_repopulates_l1(monkeypatch):
+    redis = InMemoryRedis()
+    first = TastytradeClient(
+        http_client=FakeHttpClient(),
+        shared_cache=SharedCache(redis_client=redis, enabled=True),
+    )
+    second = TastytradeClient(
+        http_client=FakeHttpClient(),
+        shared_cache=SharedCache(redis_client=redis, enabled=True),
+    )
+    fetch_count = 0
+
+    def fetch_smile(symbol, expiration, current_price):
+        nonlocal fetch_count
+        fetch_count += 1
+        return usable_smile()
+
+    monkeypatch.setattr(first, "_fetch_volatility_smile", fetch_smile)
+    monkeypatch.setattr(second, "_fetch_volatility_smile", fetch_smile)
+
+    assert first.get_volatility_smile("AAPL", "2026-08-21", 215.0) == usable_smile()
+    assert second.get_volatility_smile("AAPL", "2026-08-21", 215.0) == usable_smile()
+    assert fetch_count == 1
+    assert redis.expirations[
+        build_cache_key(
+            "volatility_skew",
+            {
+                "symbol": "AAPL",
+                "expiration": "2026-08-21",
+                "spot": 215.0,
+            },
+        )
+    ] == 300
+
+    redis.values.clear()
+    cached = second.get_volatility_smile("AAPL", "2026-08-21", 215.0)
+    cached["points"][0]["call_iv"] = 9.99
+    assert fetch_count == 1
+    assert second.get_volatility_smile(
+        "AAPL", "2026-08-21", 215.0
+    )["points"][0]["call_iv"] == 0.25
+
+
+def test_provider_error_is_not_stored_in_shared_cache(monkeypatch):
+    redis = InMemoryRedis()
+    shared = SharedCache(redis_client=redis, enabled=True)
+    client = TastytradeClient(
+        http_client=FakeHttpClient(),
+        shared_cache=shared,
+    )
+    monkeypatch.setattr(
+        client,
+        "_fetch_volatility_smile",
+        lambda symbol, expiration, current_price: client._empty_volatility_smile(
+            current_price
+        ),
+    )
+
+    client.get_volatility_smile("AAPL", "2026-08-21", 215.0)
+
+    assert build_cache_key(
+        "volatility_skew",
+        {"symbol": "AAPL", "expiration": "2026-08-21", "spot": 215.0},
+    ) not in redis.values
+
+
+def test_malformed_shared_skew_is_treated_as_a_miss(monkeypatch):
+    redis = InMemoryRedis()
+    components = {
+        "symbol": "AAPL",
+        "expiration": "2026-08-21",
+        "spot": 215.0,
+    }
+    redis.values[
+        build_cache_key("volatility_skew", components)
+    ] = json.dumps({"unexpected": "shape"})
+    client = TastytradeClient(
+        http_client=FakeHttpClient(),
+        shared_cache=SharedCache(redis_client=redis, enabled=True),
+    )
+    fetched = 0
+
+    def fetch_smile(symbol, expiration, current_price):
+        nonlocal fetched
+        fetched += 1
+        return usable_smile()
+
+    monkeypatch.setattr(client, "_fetch_volatility_smile", fetch_smile)
+
+    assert client.get_volatility_smile(
+        "AAPL", "2026-08-21", 215.0
+    ) == usable_smile()
+    assert fetched == 1
+
+
+def test_malformed_shared_skew_point_is_treated_as_a_miss(monkeypatch):
+    redis = InMemoryRedis()
+    components = {
+        "symbol": "AAPL",
+        "expiration": "2026-08-21",
+        "spot": 215.0,
+    }
+    redis.values[
+        build_cache_key("volatility_skew", components)
+    ] = json.dumps(
+        {
+            "points": [1],
+            "atm_iv": 0.25,
+            "skew_metric": 0.02,
+            "skew_basis": "25_delta",
+        }
+    )
+    client = TastytradeClient(
+        http_client=FakeHttpClient(),
+        shared_cache=SharedCache(redis_client=redis, enabled=True),
+    )
+    fetched = 0
+
+    def fetch_smile(symbol, expiration, current_price):
+        nonlocal fetched
+        fetched += 1
+        return usable_smile()
+
+    monkeypatch.setattr(client, "_fetch_volatility_smile", fetch_smile)
+
+    assert client.get_volatility_smile(
+        "AAPL", "2026-08-21", 215.0
+    ) == usable_smile()
+    assert fetched == 1
+
+
 def test_no_quote_cycle_is_negative_cached_for_45_seconds(monkeypatch):
     client = TastytradeClient(http_client=FakeHttpClient())
     client._skew_negative_cache_ttl_seconds = 45
@@ -136,6 +288,30 @@ def test_no_quote_cycle_is_negative_cached_for_45_seconds(monkeypatch):
 
     assert third["data_status"] == "no_quotes"
     assert fetch_count == 2
+
+
+def test_shared_no_quotes_result_uses_negative_ttl(monkeypatch):
+    redis = InMemoryRedis()
+    client = TastytradeClient(
+        http_client=FakeHttpClient(),
+        shared_cache=SharedCache(redis_client=redis, enabled=True),
+    )
+    monkeypatch.setattr(
+        client,
+        "_fetch_volatility_smile",
+        lambda symbol, expiration, current_price: client._empty_volatility_smile(
+            current_price,
+            data_status="no_quotes",
+        ),
+    )
+
+    client.get_volatility_smile("TSLA", "2026-08-10", 325.0)
+
+    key = build_cache_key(
+        "volatility_skew",
+        {"symbol": "TSLA", "expiration": "2026-08-10", "spot": 325.0},
+    )
+    assert redis.expirations[key] == 45
 
 
 def test_skew_cache_does_not_reuse_a_different_spot_price(monkeypatch):
@@ -297,6 +473,49 @@ def test_option_chain_uses_single_nested_request(monkeypatch):
     assert cached["expirations"] == ["2026-08-21", "2026-09-18"]
 
 
+def test_option_chain_is_shared_across_instances(monkeypatch):
+    payload = {
+        "data": {
+            "items": [
+                {
+                    "expirations": [
+                        {
+                            "expiration-date": "2026-08-21",
+                            "strikes": [{"strike-price": "100"}],
+                        }
+                    ]
+                }
+            ]
+        }
+    }
+    redis = InMemoryRedis()
+    first_http = FakeHttpClient([(200, {}, payload)])
+    second_http = FakeHttpClient()
+    first = TastytradeClient(
+        http_client=first_http,
+        shared_cache=SharedCache(redis_client=redis, enabled=True),
+    )
+    second = TastytradeClient(
+        http_client=second_http,
+        shared_cache=SharedCache(redis_client=redis, enabled=True),
+    )
+    for client in (first, second):
+        client._access_token = "token"
+        client._token_expiry = datetime.now() + timedelta(minutes=10)
+        client._request_min_interval_seconds = 0
+    monkeypatch.setattr(tastytrade_module, "_NEXT_REQUEST_AT", 0.0)
+
+    expected = first.get_option_chain("AAPL")
+    actual = second.get_option_chain("aapl")
+
+    assert actual == expected
+    assert len(first_http.calls) == 1
+    assert second_http.calls == []
+    assert redis.expirations[
+        build_cache_key("option_chain", {"symbol": "AAPL"})
+    ] == 300
+
+
 def test_volatility_smile_uses_exact_requested_expiration(monkeypatch):
     client = TastytradeClient(http_client=FakeHttpClient())
     requested_expiration = "2026-08-28"
@@ -342,3 +561,202 @@ def test_greeks_cache_is_bounded_lru_and_returns_defensive_copies():
 
     assert list(client._greeks_cache) == ["first", "third"]
     assert client._get_cached_greeks("first") == {"delta": 0.1}
+
+
+def test_market_metrics_are_shared_across_instances(monkeypatch):
+    payload = {
+        "data": {
+            "items": [
+                {
+                    "implied-volatility-index-rank": "0.42",
+                    "implied-volatility-percentile": "0.55",
+                    "implied-volatility-index": "0.27",
+                    "beta": "1.1",
+                    "liquidity-rating": "4",
+                }
+            ]
+        }
+    }
+    redis = InMemoryRedis()
+    first_http = FakeHttpClient([(200, {}, payload)])
+    second_http = FakeHttpClient()
+    first = TastytradeClient(
+        http_client=first_http,
+        shared_cache=SharedCache(redis_client=redis, enabled=True),
+    )
+    second = TastytradeClient(
+        http_client=second_http,
+        shared_cache=SharedCache(redis_client=redis, enabled=True),
+    )
+    for client in (first, second):
+        client._access_token = "token"
+        client._token_expiry = datetime.now() + timedelta(minutes=10)
+        client._request_min_interval_seconds = 0
+    monkeypatch.setattr(tastytrade_module, "_NEXT_REQUEST_AT", 0.0)
+
+    expected = first.get_market_metrics("AAPL")
+    actual = second.get_market_metrics("aapl")
+
+    assert actual == expected
+    assert len(first_http.calls) == 1
+    assert second_http.calls == []
+    assert redis.expirations[
+        build_cache_key("market_metrics", {"symbol": "AAPL"})
+    ] == 300
+
+
+def test_nonempty_symbol_search_results_are_shared(monkeypatch):
+    payload = {
+        "data": {
+            "items": [
+                {
+                    "instrument-type": "Equity",
+                    "symbol": "AAPL",
+                    "description": "Apple Inc.",
+                    "listed-market": "NASDAQ",
+                    "etf": False,
+                }
+            ]
+        }
+    }
+    redis = InMemoryRedis()
+    first_http = FakeHttpClient([(200, {}, payload)])
+    second_http = FakeHttpClient()
+    first = TastytradeClient(
+        http_client=first_http,
+        shared_cache=SharedCache(redis_client=redis, enabled=True),
+    )
+    second = TastytradeClient(
+        http_client=second_http,
+        shared_cache=SharedCache(redis_client=redis, enabled=True),
+    )
+    for client in (first, second):
+        client._access_token = "token"
+        client._token_expiry = datetime.now() + timedelta(minutes=10)
+        client._request_min_interval_seconds = 0
+    monkeypatch.setattr(tastytrade_module, "_NEXT_REQUEST_AT", 0.0)
+
+    expected = first.search_symbols(" apple ")
+    actual = second.search_symbols("APPLE")
+
+    assert actual == expected
+    assert len(first_http.calls) == 1
+    assert second_http.calls == []
+    assert redis.expirations[
+        build_cache_key("symbol_search", {"query": "APPLE"})
+    ] == 3600
+
+
+def test_verified_yahoo_symbol_fallback_is_shared(monkeypatch):
+    redis = InMemoryRedis()
+    expected = [
+        {
+            "symbol": "AAPL",
+            "name": "Apple Inc.",
+            "exchange": "NASDAQ",
+            "type": "EQUITY",
+        }
+    ]
+    first = TastytradeClient(
+        http_client=FakeHttpClient(),
+        shared_cache=SharedCache(redis_client=redis, enabled=True),
+    )
+    second = TastytradeClient(
+        http_client=FakeHttpClient(),
+        shared_cache=SharedCache(redis_client=redis, enabled=True),
+    )
+    monkeypatch.setattr(first, "_ensure_token", lambda: False)
+    monkeypatch.setattr(second, "_ensure_token", lambda: False)
+    monkeypatch.setattr(
+        first,
+        "_search_symbols_fallback_result",
+        lambda query: (expected, True),
+    )
+    monkeypatch.setattr(
+        second,
+        "_search_symbols_fallback_result",
+        lambda query: (_ for _ in ()).throw(
+            AssertionError("shared result should avoid Yahoo")
+        ),
+    )
+
+    assert first.search_symbols("aapl") == expected
+    assert second.search_symbols("AAPL") == expected
+    assert redis.expirations[
+        build_cache_key("symbol_search", {"query": "AAPL"})
+    ] == 3600
+
+
+def test_error_derived_symbol_fallback_is_not_cached(monkeypatch):
+    redis = InMemoryRedis()
+    synthetic = [
+        {
+            "symbol": "AAPL",
+            "name": "AAPL",
+            "exchange": "Unknown",
+            "type": "EQUITY",
+        }
+    ]
+    client = TastytradeClient(
+        http_client=FakeHttpClient(),
+        shared_cache=SharedCache(redis_client=redis, enabled=True),
+    )
+    monkeypatch.setattr(client, "_ensure_token", lambda: False)
+    monkeypatch.setattr(
+        client,
+        "_search_symbols_fallback_result",
+        lambda query: (synthetic, False),
+    )
+
+    assert client.search_symbols("AAPL") == synthetic
+    assert build_cache_key(
+        "symbol_search", {"query": "AAPL"}
+    ) not in redis.values
+
+
+def test_available_greeks_are_shared_by_normalized_osi_contract(monkeypatch):
+    payload = {
+        "data": {
+            "items": [
+                {
+                    "delta": "0.51",
+                    "gamma": "0.02",
+                    "theta": "-0.1",
+                    "vega": "0.2",
+                    "rho": "0.03",
+                    "volatility": "0.25",
+                }
+            ]
+        }
+    }
+    redis = InMemoryRedis()
+    first_http = FakeHttpClient([(200, {}, payload)])
+    second_http = FakeHttpClient()
+    first = TastytradeClient(
+        http_client=first_http,
+        shared_cache=SharedCache(redis_client=redis, enabled=True),
+    )
+    second = TastytradeClient(
+        http_client=second_http,
+        shared_cache=SharedCache(redis_client=redis, enabled=True),
+    )
+    for client in (first, second):
+        client._access_token = "token"
+        client._token_expiry = datetime.now() + timedelta(minutes=10)
+        client._request_min_interval_seconds = 0
+    monkeypatch.setattr(tastytrade_module, "_NEXT_REQUEST_AT", 0.0)
+
+    expected = first.get_option_greeks(
+        " aapl ", 200.0, "2026-08-21", "c"
+    )
+    actual = second.get_option_greeks(
+        "AAPL", 200, "2026-08-21", "C"
+    )
+
+    assert actual == expected
+    assert len(first_http.calls) == 1
+    assert second_http.calls == []
+    osi = first._to_osi_symbol("AAPL", "2026-08-21", 200, "C")
+    assert redis.expirations[
+        build_cache_key("greeks", {"osi": osi})
+    ] == 300

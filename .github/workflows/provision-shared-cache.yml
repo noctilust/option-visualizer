@@ -1,0 +1,431 @@
+name: Provision shared Valkey cache
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirm_cost:
+        description: Type PROVISION to approve the approximately $23.21/month cache
+        required: true
+        type: string
+
+env:
+  PROJECT_ID: gen-lang-client-0233172083
+  REGION: us-central1
+  ZONE: us-central1-a
+  SERVICE: option-visualizer
+  INSTANCE: optionvis-cache
+  NETWORK: optionvis-cache-vpc
+  SUBNET: optionvis-cache-us-central1
+  SUBNET_RANGE: 10.90.0.0/24
+  CONNECTION_POLICY: optionvis-cache-policy
+  SECRET: optionvis-valkey-password
+  PROBE_JOB: optionvis-cache-probe
+
+jobs:
+  provision:
+    name: Provision and enable shared cache
+    runs-on: ubuntu-latest
+    environment: infrastructure
+    concurrency:
+      group: optionvis-cache-infrastructure
+      cancel-in-progress: false
+    permissions:
+      contents: read
+      id-token: write
+
+    steps:
+      - name: Require explicit cost confirmation
+        if: ${{ inputs.confirm_cost != 'PROVISION' }}
+        run: |
+          echo "Enter PROVISION when dispatching this workflow."
+          exit 1
+
+      - name: Checkout code
+        uses: actions/checkout@v7
+
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v3
+        with:
+          workload_identity_provider: ${{ secrets.WIF_PROVIDER }}
+          service_account: ${{ secrets.WIF_SERVICE_ACCOUNT }}
+
+      - name: Set up Google Cloud CLI
+        uses: google-github-actions/setup-gcloud@v3
+        with:
+          project_id: ${{ env.PROJECT_ID }}
+          install_components: beta
+
+      - name: Enable required APIs
+        run: |
+          gcloud services enable \
+            compute.googleapis.com \
+            networkconnectivity.googleapis.com \
+            serviceconsumermanagement.googleapis.com \
+            memorystore.googleapis.com \
+            secretmanager.googleapis.com \
+            monitoring.googleapis.com \
+            logging.googleapis.com \
+            run.googleapis.com \
+            --project="${PROJECT_ID}"
+
+      - name: Create dedicated VPC and subnet
+        run: |
+          if ! gcloud compute networks describe "${NETWORK}" \
+            --project="${PROJECT_ID}" >/dev/null 2>&1; then
+            gcloud compute networks create "${NETWORK}" \
+              --project="${PROJECT_ID}" \
+              --subnet-mode=custom
+          fi
+
+          if ! gcloud compute networks subnets describe "${SUBNET}" \
+            --project="${PROJECT_ID}" \
+            --region="${REGION}" >/dev/null 2>&1; then
+            gcloud compute networks subnets create "${SUBNET}" \
+              --project="${PROJECT_ID}" \
+              --network="${NETWORK}" \
+              --region="${REGION}" \
+              --range="${SUBNET_RANGE}" \
+              --enable-private-ip-google-access
+          fi
+
+      - name: Create Memorystore service connection policy
+        run: |
+          if ! gcloud network-connectivity service-connection-policies describe \
+            "${CONNECTION_POLICY}" \
+            --project="${PROJECT_ID}" \
+            --region="${REGION}" >/dev/null 2>&1; then
+            gcloud network-connectivity service-connection-policies create \
+              "${CONNECTION_POLICY}" \
+              --project="${PROJECT_ID}" \
+              --region="${REGION}" \
+              --network="projects/${PROJECT_ID}/global/networks/${NETWORK}" \
+              --service-class=gcp-memorystore \
+              --subnets="projects/${PROJECT_ID}/regions/${REGION}/subnetworks/${SUBNET}"
+          fi
+
+      - name: Provision the selected Valkey instance
+        run: |
+          if ! gcloud beta memorystore instances describe "${INSTANCE}" \
+            --project="${PROJECT_ID}" \
+            --location="${REGION}" >/dev/null 2>&1; then
+            gcloud beta memorystore instances create "${INSTANCE}" \
+              --project="${PROJECT_ID}" \
+              --location="${REGION}" \
+              --endpoints="[{\"connections\":[{\"pscAutoConnection\":{\"network\":\"projects/${PROJECT_ID}/global/networks/${NETWORK}\",\"projectId\":\"${PROJECT_ID}\"}}]}]" \
+              --engine-version=VALKEY_8_0 \
+              --mode=cluster-disabled \
+              --node-type=shared-core-nano \
+              --shard-count=1 \
+              --replica-count=0 \
+              --zone-distribution-config-mode=single-zone \
+              --zone-distribution-config="${ZONE}" \
+              --persistence-config-mode=disabled \
+              --automated-backup-config-mode=disabled \
+              --engine-configs=maxmemory-policy=allkeys-lru \
+              --authorization-mode=token-auth \
+              --transit-encryption-mode=transit-encryption-disabled
+          fi
+
+      - name: Validate immutable instance sizing and security choices
+        run: |
+          INSTANCE_JSON="$(gcloud beta memorystore instances describe "${INSTANCE}" \
+            --project="${PROJECT_ID}" \
+            --location="${REGION}" \
+            --format=json)"
+          jq -e '
+            .nodeType == "SHARED_CORE_NANO" and
+            .engineVersion == "VALKEY_8_0" and
+            .mode == "CLUSTER_DISABLED" and
+            .shardCount == 1 and
+            .replicaCount == 0 and
+            .authorizationMode == "TOKEN_AUTH" and
+            .transitEncryptionMode == "TRANSIT_ENCRYPTION_DISABLED" and
+            .zoneDistributionConfig.mode == "SINGLE_ZONE" and
+            .zoneDistributionConfig.zone == "us-central1-a" and
+            .persistenceConfig.mode == "DISABLED" and
+            .automatedBackupConfig.automatedBackupMode == "DISABLED" and
+            .engineConfigs["maxmemory-policy"] == "allkeys-lru"
+          ' <<<"${INSTANCE_JSON}" >/dev/null
+
+      - name: Store the generated default-user token
+        run: |
+          TOKEN_JSON="$(gcloud beta memorystore instances token-auth-users auth-tokens list \
+            --token-auth-user=default \
+            --instance="${INSTANCE}" \
+            --location="${REGION}" \
+            --project="${PROJECT_ID}" \
+            --format=json)"
+          VALKEY_PASSWORD="$(jq -er '.[0] | .value // .token // .authToken' <<<"${TOKEN_JSON}")"
+
+          if ! gcloud secrets describe "${SECRET}" \
+            --project="${PROJECT_ID}" >/dev/null 2>&1; then
+            gcloud secrets create "${SECRET}" \
+              --project="${PROJECT_ID}" \
+              --replication-policy=automatic
+          fi
+          printf '%s' "${VALKEY_PASSWORD}" | gcloud secrets versions add \
+            "${SECRET}" \
+            --project="${PROJECT_ID}" \
+            --data-file=-
+
+      - name: Grant runtime access to only the Valkey token
+        run: |
+          RUNTIME_SERVICE_ACCOUNT="$(gcloud run services describe "${SERVICE}" \
+            --project="${PROJECT_ID}" \
+            --region="${REGION}" \
+            --format='value(spec.template.spec.serviceAccountName)')"
+          if [[ -z "${RUNTIME_SERVICE_ACCOUNT}" ]]; then
+            PROJECT_NUMBER="$(gcloud projects describe "${PROJECT_ID}" \
+              --format='value(projectNumber)')"
+            RUNTIME_SERVICE_ACCOUNT="${PROJECT_NUMBER}-compute@developer.gserviceaccount.com"
+          fi
+          gcloud secrets add-iam-policy-binding "${SECRET}" \
+            --project="${PROJECT_ID}" \
+            --member="serviceAccount:${RUNTIME_SERVICE_ACCOUNT}" \
+            --role=roles/secretmanager.secretAccessor \
+            --quiet
+
+      - name: Attach Cloud Run with shared caching still disabled
+        run: |
+          INSTANCE_JSON="$(gcloud beta memorystore instances describe "${INSTANCE}" \
+            --project="${PROJECT_ID}" \
+            --location="${REGION}" \
+            --format=json)"
+          VALKEY_HOST="$(jq -er '
+            .endpoints[0].connections[0].pscAutoConnection.ipAddress //
+            .endpoints[0].connections[0].pscAutoConnection.ip_address
+          ' <<<"${INSTANCE_JSON}")"
+
+          gcloud run services update "${SERVICE}" \
+            --project="${PROJECT_ID}" \
+            --region="${REGION}" \
+            --network="${NETWORK}" \
+            --subnet="${SUBNET}" \
+            --vpc-egress=private-ranges-only \
+            --update-env-vars="SHARED_CACHE_ENABLED=false,VALKEY_HOST=${VALKEY_HOST},VALKEY_PORT=6379,VALKEY_USERNAME=default" \
+            --update-secrets="VALKEY_PASSWORD=${SECRET}:latest" \
+            --quiet
+
+      - name: Verify PSC connectivity and token authentication from Cloud Run
+        run: |
+          INSTANCE_JSON="$(gcloud beta memorystore instances describe "${INSTANCE}" \
+            --project="${PROJECT_ID}" \
+            --location="${REGION}" \
+            --format=json)"
+          VALKEY_HOST="$(jq -er '
+            .endpoints[0].connections[0].pscAutoConnection.ipAddress //
+            .endpoints[0].connections[0].pscAutoConnection.ip_address
+          ' <<<"${INSTANCE_JSON}")"
+          IMAGE="$(gcloud run services describe "${SERVICE}" \
+            --project="${PROJECT_ID}" \
+            --region="${REGION}" \
+            --format='value(spec.template.spec.containers[0].image)')"
+          RUNTIME_SERVICE_ACCOUNT="$(gcloud run services describe "${SERVICE}" \
+            --project="${PROJECT_ID}" \
+            --region="${REGION}" \
+            --format='value(spec.template.spec.serviceAccountName)')"
+          if [[ -z "${RUNTIME_SERVICE_ACCOUNT}" ]]; then
+            PROJECT_NUMBER="$(gcloud projects describe "${PROJECT_ID}" \
+              --format='value(projectNumber)')"
+            RUNTIME_SERVICE_ACCOUNT="${PROJECT_NUMBER}-compute@developer.gserviceaccount.com"
+          fi
+
+          gcloud run jobs deploy "${PROBE_JOB}" \
+            --project="${PROJECT_ID}" \
+            --region="${REGION}" \
+            --image="${IMAGE}" \
+            --service-account="${RUNTIME_SERVICE_ACCOUNT}" \
+            --command=python \
+            --args=cache_probe.py \
+            --network="${NETWORK}" \
+            --subnet="${SUBNET}" \
+            --vpc-egress=private-ranges-only \
+            --set-env-vars="VALKEY_HOST=${VALKEY_HOST},VALKEY_PORT=6379,VALKEY_USERNAME=default,CACHE_PROBE_FLUSH=true" \
+            --set-secrets="VALKEY_PASSWORD=${SECRET}:latest" \
+            --max-retries=0 \
+            --task-timeout=60s \
+            --quiet
+          gcloud run jobs execute "${PROBE_JOB}" \
+            --project="${PROJECT_ID}" \
+            --region="${REGION}" \
+            --wait
+
+      - name: Enable shared caching
+        run: |
+          gcloud run services update "${SERVICE}" \
+            --project="${PROJECT_ID}" \
+            --region="${REGION}" \
+            --update-env-vars=SHARED_CACHE_ENABLED=true \
+            --quiet
+
+      - name: Verify repeated API responses and shared-cache population
+        run: |
+          SERVICE_URL="$(gcloud run services describe "${SERVICE}" \
+            --project="${PROJECT_ID}" \
+            --region="${REGION}" \
+            --format='value(status.url)')"
+          SMOKE_DIR="${RUNNER_TEMP}/optionvis-cache-smoke"
+          mkdir -p "${SMOKE_DIR}"
+          FIRST_STARTED_AT="$(date -u +%Y-%m-%dT%H:%M:%S.%NZ)"
+
+          curl --fail --silent --show-error \
+            "${SERVICE_URL}/symbols/search?q=AAPL" \
+            >"${SMOKE_DIR}/symbols-first.json"
+
+          curl --fail --silent --show-error \
+            "${SERVICE_URL}/market-data/AAPL" \
+            >"${SMOKE_DIR}/market-first.json"
+
+          curl --fail --silent --show-error \
+            "${SERVICE_URL}/option-chain/AAPL" \
+            >"${SMOKE_DIR}/chain-first.json"
+
+          EXPIRATION="$(jq -er '.expirations[0]' \
+            "${SMOKE_DIR}/chain-first.json")"
+          curl --fail --silent --show-error \
+            "${SERVICE_URL}/volatility-skew/AAPL?expiration=${EXPIRATION}" \
+            >"${SMOKE_DIR}/skew-first.json"
+          FIRST_ENDED_AT="$(date -u +%Y-%m-%dT%H:%M:%S.%NZ)"
+
+          # A new revision has empty process-local caches. Its identical
+          # requests therefore prove reads came from the shared L2 cache.
+          gcloud run services update "${SERVICE}" \
+            --project="${PROJECT_ID}" \
+            --region="${REGION}" \
+            --update-env-vars="CACHE_ROLLOUT_PROBE_ID=${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}" \
+            --quiet
+          SECOND_STARTED_AT="$(date -u +%Y-%m-%dT%H:%M:%S.%NZ)"
+
+          curl --fail --silent --show-error \
+            "${SERVICE_URL}/symbols/search?q=AAPL" \
+            >"${SMOKE_DIR}/symbols-second.json"
+          curl --fail --silent --show-error \
+            "${SERVICE_URL}/market-data/AAPL" \
+            >"${SMOKE_DIR}/market-second.json"
+          curl --fail --silent --show-error \
+            "${SERVICE_URL}/option-chain/AAPL" \
+            >"${SMOKE_DIR}/chain-second.json"
+          curl --fail --silent --show-error \
+            "${SERVICE_URL}/volatility-skew/AAPL?expiration=${EXPIRATION}" \
+            >"${SMOKE_DIR}/skew-second.json"
+          SECOND_ENDED_AT="$(date -u +%Y-%m-%dT%H:%M:%S.%NZ)"
+
+          diff \
+            <(jq -S . "${SMOKE_DIR}/symbols-first.json") \
+            <(jq -S . "${SMOKE_DIR}/symbols-second.json")
+          diff \
+            <(jq -S 'del(.timestamp)' "${SMOKE_DIR}/market-first.json") \
+            <(jq -S 'del(.timestamp)' "${SMOKE_DIR}/market-second.json")
+          diff \
+            <(jq -S . "${SMOKE_DIR}/chain-first.json") \
+            <(jq -S . "${SMOKE_DIR}/chain-second.json")
+          diff \
+            <(jq -S . "${SMOKE_DIR}/skew-first.json") \
+            <(jq -S . "${SMOKE_DIR}/skew-second.json")
+
+          read_cache_logs() {
+            local STARTED_AT="$1"
+            local ENDED_AT="$2"
+            gcloud logging read \
+              "resource.type=cloud_run_revision AND resource.labels.service_name=${SERVICE} AND timestamp>=\\\"${STARTED_AT}\\\" AND timestamp<=\\\"${ENDED_AT}\\\" AND textPayload:\\\"cache_event dataset=\\\"" \
+              --project="${PROJECT_ID}" \
+              --limit=500 \
+              --order=asc \
+              --format='value(textPayload)'
+          }
+
+          FIRST_LOGS=""
+          SECOND_LOGS=""
+          for _attempt in 1 2 3 4 5 6; do
+            FIRST_LOGS="$(read_cache_logs \
+              "${FIRST_STARTED_AT}" "${FIRST_ENDED_AT}")"
+            SECOND_LOGS="$(read_cache_logs \
+              "${SECOND_STARTED_AT}" "${SECOND_ENDED_AT}")"
+            if grep -Eq 'dataset=volatility_skew event=store' \
+              <<<"${FIRST_LOGS}" &&
+              grep -Eq 'dataset=volatility_skew event=hit' \
+              <<<"${SECOND_LOGS}"; then
+              break
+            fi
+            sleep 5
+          done
+
+          for DATASET in symbol_search stock_price option_chain volatility_skew; do
+            grep -Eq "dataset=${DATASET} event=provider_fetch" \
+              <<<"${FIRST_LOGS}"
+            grep -Eq "dataset=${DATASET} event=store" \
+              <<<"${FIRST_LOGS}"
+            grep -Eq "dataset=${DATASET} event=hit" \
+              <<<"${SECOND_LOGS}"
+            ! grep -Eq "dataset=${DATASET} event=provider_fetch" \
+              <<<"${SECOND_LOGS}"
+          done
+          echo "First requests fetched and stored; fresh-instance repeats hit Valkey without provider fetches."
+
+      - name: Remove rollout probe revision marker
+        if: ${{ always() }}
+        run: |
+          if gcloud run services describe "${SERVICE}" \
+            --project="${PROJECT_ID}" \
+            --region="${REGION}" \
+            --format=json |
+            jq -e '
+              .spec.template.spec.containers[0].env // [] |
+              any(.name == "CACHE_ROLLOUT_PROBE_ID")
+            ' >/dev/null; then
+            gcloud run services update "${SERVICE}" \
+              --project="${PROJECT_ID}" \
+              --region="${REGION}" \
+              --remove-env-vars=CACHE_ROLLOUT_PROBE_ID \
+              --quiet
+          fi
+
+      - name: Create logs-based cache metrics
+        run: |
+          if ! gcloud logging metrics describe optionvis_cache_events \
+            --project="${PROJECT_ID}" >/dev/null 2>&1; then
+            gcloud logging metrics create optionvis_cache_events \
+              --project="${PROJECT_ID}" \
+              --description="All OptionVis shared-cache events" \
+              --log-filter='resource.type="cloud_run_revision" AND resource.labels.service_name="option-visualizer" AND textPayload:"cache_event dataset="'
+          fi
+          if ! gcloud logging metrics describe optionvis_cache_errors \
+            --project="${PROJECT_ID}" >/dev/null 2>&1; then
+            gcloud logging metrics create optionvis_cache_errors \
+              --project="${PROJECT_ID}" \
+              --description="Fail-open OptionVis shared-cache errors" \
+              --log-filter='resource.type="cloud_run_revision" AND resource.labels.service_name="option-visualizer" AND textPayload:"cache_event dataset=" AND textPayload=~"event=[a-z_]+_error"'
+          fi
+
+      - name: Create monitoring dashboard and alert policy
+        run: |
+          if [[ -z "$(gcloud monitoring dashboards list \
+            --project="${PROJECT_ID}" \
+            --filter='displayName="OptionVis shared cache"' \
+            --format='value(name)' \
+            --limit=1)" ]]; then
+            gcloud monitoring dashboards create \
+              --project="${PROJECT_ID}" \
+              --config-from-file=.github/monitoring/optionvis-cache-dashboard.json
+          fi
+
+          if [[ -z "$(gcloud monitoring policies list \
+            --project="${PROJECT_ID}" \
+            --filter='displayName="OptionVis shared cache health"' \
+            --format='value(name)' \
+            --limit=1)" ]]; then
+            gcloud monitoring policies create \
+              --project="${PROJECT_ID}" \
+              --policy-from-file=.github/monitoring/optionvis-cache-alert-policy.json
+          fi
+
+      - name: Show rollout state
+        run: |
+          gcloud beta memorystore instances describe "${INSTANCE}" \
+            --project="${PROJECT_ID}" \
+            --location="${REGION}" \
+            --format='table(name.basename(),state,nodeType,engineVersion,mode,shardCount,replicaCount)'
+          gcloud run services describe "${SERVICE}" \
+            --project="${PROJECT_ID}" \
+            --region="${REGION}" \
+            --format='value(status.url)'

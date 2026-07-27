@@ -19,6 +19,7 @@ from typing import Optional, Dict, Any
 from datetime import datetime, timedelta, timezone
 
 from dotenv import load_dotenv
+from shared_cache import CacheTTL, SharedCache, get_shared_cache
 
 # Load environment variables from .env file
 load_dotenv()
@@ -148,7 +149,11 @@ def summarize_volatility_skew(
 class TastytradeClient:
     """Client for Tastytrade API using direct REST calls"""
 
-    def __init__(self, http_client: httpx.Client | None = None):
+    def __init__(
+        self,
+        http_client: httpx.Client | None = None,
+        shared_cache: SharedCache | None = None,
+    ):
         """
         Initialize Tastytrade client with OAuth credentials from environment.
         
@@ -173,6 +178,16 @@ class TastytradeClient:
         self._greeks_cache_max_entries = _env_int(
             "TASTYTRADE_GREEKS_CACHE_MAX_ENTRIES", 4096
         )
+        self._market_metrics_cache: OrderedDict[
+            str, tuple[float, Dict[str, Any]]
+        ] = OrderedDict()
+        self._market_metrics_cache_lock = threading.Lock()
+        self._market_metrics_cache_ttl_seconds = 300.0
+        self._symbol_search_cache: OrderedDict[
+            str, tuple[float, list[Dict[str, Any]]]
+        ] = OrderedDict()
+        self._symbol_search_cache_lock = threading.Lock()
+        self._symbol_search_cache_ttl_seconds = 3600.0
         self._skew_cache: OrderedDict[
             tuple[str, str, float], tuple[float, Dict[str, Any]]
         ] = OrderedDict()
@@ -219,6 +234,7 @@ class TastytradeClient:
             )
         )
         self._owns_http_client = http_client is None
+        self._shared_cache = shared_cache or get_shared_cache()
         self._enabled = bool(self.client_secret and self.refresh_token)
         
         if not self._enabled:
@@ -266,6 +282,81 @@ class TastytradeClient:
             self._greeks_cache.move_to_end(cache_key)
             while len(self._greeks_cache) > self._greeks_cache_max_entries:
                 self._greeks_cache.popitem(last=False)
+
+    @staticmethod
+    def _get_timed_cache(
+        cache: OrderedDict,
+        lock: threading.Lock,
+        cache_key: str,
+        ttl_seconds: float,
+    ) -> Any | None:
+        now = time.monotonic()
+        with lock:
+            cached = cache.get(cache_key)
+            if cached is None:
+                return None
+            cached_at, cached_data = cached
+            if now - cached_at >= ttl_seconds:
+                del cache[cache_key]
+                return None
+            cache.move_to_end(cache_key)
+            return deepcopy(cached_data)
+
+    @staticmethod
+    def _set_timed_cache(
+        cache: OrderedDict,
+        lock: threading.Lock,
+        cache_key: str,
+        data: Any,
+        max_entries: int = 256,
+    ) -> None:
+        with lock:
+            cache[cache_key] = (time.monotonic(), deepcopy(data))
+            cache.move_to_end(cache_key)
+            while len(cache) > max_entries:
+                cache.popitem(last=False)
+
+    @staticmethod
+    def _is_cacheable_market_metrics(value: Any) -> bool:
+        return isinstance(value, dict) and any(
+            isinstance(value.get(field), (int, float))
+            for field in (
+                "iv_rank",
+                "iv_percentile",
+                "implied_volatility",
+                "beta",
+                "liquidity_rating",
+            )
+        )
+
+    @staticmethod
+    def _is_cacheable_greeks(value: Any) -> bool:
+        return isinstance(value, dict) and (
+            isinstance(value.get("implied_volatility"), (int, float))
+            or isinstance(value.get("delta"), (int, float))
+        )
+
+    @staticmethod
+    def _is_cacheable_symbol_results(value: Any) -> bool:
+        return (
+            isinstance(value, list)
+            and bool(value)
+            and all(
+                isinstance(item, dict)
+                and isinstance(item.get("symbol"), str)
+                and bool(item["symbol"].strip())
+                for item in value
+            )
+        )
+
+    @staticmethod
+    def _is_cacheable_option_chain(value: Any) -> bool:
+        return (
+            isinstance(value, dict)
+            and isinstance(value.get("expirations"), list)
+            and bool(value["expirations"])
+            and isinstance(value.get("strikes_by_expiration"), dict)
+        )
 
     def _observe_rate_limit_headers(self, response: httpx.Response) -> None:
         """Log provider-supplied rate telemetry without assuming fixed limits."""
@@ -445,15 +536,55 @@ class TastytradeClient:
                 'liquidity_rating': int,  # Options liquidity rating
             }
         """
+        cache_key = symbol.strip().upper()
+        shared_components = {"symbol": cache_key}
+        cached = self._get_timed_cache(
+            self._market_metrics_cache,
+            self._market_metrics_cache_lock,
+            cache_key,
+            self._market_metrics_cache_ttl_seconds,
+        )
+        if cached is not None:
+            return cached
+
+        shared_result = self._shared_cache.get_json(
+            "market_metrics", shared_components
+        )
+        if self._is_cacheable_market_metrics(shared_result):
+            self._set_timed_cache(
+                self._market_metrics_cache,
+                self._market_metrics_cache_lock,
+                cache_key,
+                shared_result,
+            )
+            return shared_result
+
         if not self._ensure_token():
             return None
 
+        lease_owner = self._shared_cache.acquire_fill_lease(
+            "market_metrics", shared_components
+        )
+        if not lease_owner:
+            shared_result = self._shared_cache.wait_for_json(
+                "market_metrics", shared_components
+            )
+            if self._is_cacheable_market_metrics(shared_result):
+                self._set_timed_cache(
+                    self._market_metrics_cache,
+                    self._market_metrics_cache_lock,
+                    cache_key,
+                    shared_result,
+                )
+                return shared_result
+
         try:
+            self._shared_cache.record_provider_fetch("market_metrics")
             # Fetch market metrics via REST API
             response = self._request(
                 "GET",
                 f"{TASTYTRADE_API_URL}/market-metrics",
-                params={"symbols": symbol},
+                params={"symbols": cache_key},
                 headers={"Authorization": f"Bearer {self._access_token}"},
                 timeout=10.0
             )
@@ -475,8 +606,22 @@ class TastytradeClient:
                 'beta': self._safe_float(metric.get("beta")),
                 'liquidity_rating': self._safe_int(metric.get("liquidity-rating")),
             }
+
+            if self._is_cacheable_market_metrics(result):
+                self._shared_cache.set_json(
+                    "market_metrics",
+                    shared_components,
+                    result,
+                    int(self._market_metrics_cache_ttl_seconds),
+                )
+                self._set_timed_cache(
+                    self._market_metrics_cache,
+                    self._market_metrics_cache_lock,
+                    cache_key,
+                    result,
+                )
             
-            logger.info(f"Fetched Tastytrade metrics for {symbol}: IV Rank={result['iv_rank']}")
+            logger.info(f"Fetched Tastytrade metrics for {cache_key}: IV Rank={result['iv_rank']}")
             return result
 
         except httpx.HTTPStatusError as e:
@@ -508,23 +653,50 @@ class TastytradeClient:
         Returns:
             Dict with delta, gamma, theta, vega, rho, implied_volatility or None if unavailable
         """
+        osi_symbol = self._to_osi_symbol(
+            symbol, expiration_date, strike, option_type
+        )
+        if not osi_symbol:
+            logger.warning(
+                "Could not create OSI symbol for %s %s %s %s",
+                symbol,
+                strike,
+                option_type,
+                expiration_date,
+            )
+            return None
+
+        # Check L1 then shared L2 before contacting OAuth or the provider.
+        cache_key = f"greeks_{osi_symbol}"
+        shared_components = {"osi": osi_symbol}
+        cached_data = self._get_cached_greeks(cache_key)
+        if cached_data is not None:
+            logger.info("Greeks cache hit")
+            return cached_data
+
+        shared_result = self._shared_cache.get_json(
+            "greeks", shared_components
+        )
+        if self._is_cacheable_greeks(shared_result):
+            self._cache_greeks(cache_key, shared_result)
+            return shared_result
+
         if not self._ensure_token():
             return None
 
-        # Check cache first (5-minute cache for Greeks)
-        cache_key = f"greeks_{symbol}_{strike}_{expiration_date}_{option_type}"
-        cached_data = self._get_cached_greeks(cache_key)
-        if cached_data is not None:
-            logger.info(f"Greeks cache hit: {cache_key}")
-            return cached_data
+        lease_owner = self._shared_cache.acquire_fill_lease(
+            "greeks", shared_components
+        )
+        if not lease_owner:
+            shared_result = self._shared_cache.wait_for_json(
+                "greeks", shared_components
+            )
+            if self._is_cacheable_greeks(shared_result):
+                self._cache_greeks(cache_key, shared_result)
+                return shared_result
 
         try:
-            # Convert to OSI symbol format: "SYMBOL  YYMMDD(C/P)00000000"
-            osi_symbol = self._to_osi_symbol(symbol, expiration_date, strike, option_type)
-            if not osi_symbol:
-                logger.warning(f"Could not create OSI symbol for {symbol} {strike} {option_type} {expiration_date}")
-                return None
-
+            self._shared_cache.record_provider_fetch("greeks")
             # Fetch option quote from /market-data endpoint
             response = self._request(
                 "GET",
@@ -569,6 +741,12 @@ class TastytradeClient:
 
             # Cache the result
             self._cache_greeks(cache_key, greeks)
+            self._shared_cache.set_json(
+                "greeks",
+                shared_components,
+                greeks,
+                int(self._greeks_cache_ttl_seconds),
+            )
             logger.debug(
                 "Fetched Greeks for %s: IV=%s, delta=%s",
                 osi_symbol,
@@ -602,9 +780,6 @@ class TastytradeClient:
             Dict mapping position_key -> Greeks dict
             position_key format: "{symbol}_{strike}_{expiration_date}_{option_type}"
         """
-        if not self._ensure_token():
-            return {}
-
         result = {}
         osi_symbols = []
         position_keys = []
@@ -619,23 +794,55 @@ class TastytradeClient:
             position_key = f"{symbol}_{strike}_{expiration_date}_{option_type}"
 
             # Check cache first
-            cache_key = f"greeks_{symbol}_{strike}_{expiration_date}_{option_type}"
+            osi_symbol = self._to_osi_symbol(
+                symbol, expiration_date, strike, option_type
+            )
+            if not osi_symbol:
+                continue
+            cache_key = f"greeks_{osi_symbol}"
             cached_data = self._get_cached_greeks(cache_key)
             if cached_data is not None:
                 result[position_key] = cached_data
                 logger.debug("Greeks cache hit: %s", position_key)
                 continue
 
-            # Create OSI symbol for API request
-            osi_symbol = self._to_osi_symbol(symbol, expiration_date, strike, option_type)
-            if osi_symbol:
-                osi_symbols.append(osi_symbol)
-                position_keys.append((position_key, symbol, strike, expiration_date, option_type))
+            shared_result = self._shared_cache.get_json(
+                "greeks", {"osi": osi_symbol}
+            )
+            if self._is_cacheable_greeks(shared_result):
+                self._cache_greeks(cache_key, shared_result)
+                result[position_key] = shared_result
+                continue
+
+            lease_owner = self._shared_cache.acquire_fill_lease(
+                "greeks", {"osi": osi_symbol}
+            )
+            if not lease_owner:
+                shared_result = self._shared_cache.wait_for_json(
+                    "greeks",
+                    {"osi": osi_symbol},
+                    timeout_seconds=0.01,
+                )
+                if self._is_cacheable_greeks(shared_result):
+                    self._cache_greeks(cache_key, shared_result)
+                    result[position_key] = shared_result
+                    continue
+
+            osi_symbols.append(osi_symbol)
+            position_keys.append(
+                (
+                    position_key,
+                    osi_symbol,
+                )
+            )
 
         if not osi_symbols:
             return result  # All results were from cache
+        if not self._ensure_token():
+            return result
 
         try:
+            self._shared_cache.record_provider_fetch("greeks")
             # Batch fetch - API accepts multiple symbols separated by commas
             # But the API has a limit, so we chunk if needed
             chunk_size = 50  # API limit per request
@@ -664,7 +871,7 @@ class TastytradeClient:
                     if i + j >= len(position_keys):
                         break
 
-                    position_key, symbol, strike, expiration_date, option_type = position_keys[i + j]
+                    position_key, osi_symbol = position_keys[i + j]
                     osi_symbol = chunk[j]
 
                     if osi_symbol not in items_map:
@@ -692,8 +899,14 @@ class TastytradeClient:
                         continue
 
                     # Cache the result
-                    cache_key = f"greeks_{symbol}_{strike}_{expiration_date}_{option_type}"
+                    cache_key = f"greeks_{osi_symbol}"
                     self._cache_greeks(cache_key, greeks)
+                    self._shared_cache.set_json(
+                        "greeks",
+                        {"osi": osi_symbol},
+                        greeks,
+                        int(self._greeks_cache_ttl_seconds),
+                    )
 
                     result[position_key] = greeks
                     logger.debug(
@@ -749,7 +962,7 @@ class TastytradeClient:
             exp = datetime.strptime(expiration_date, "%Y-%m-%d")
 
             # Format parts
-            symbol_part = symbol.upper().ljust(6)[:6]  # Left-align, pad with spaces, max 6 chars
+            symbol_part = symbol.strip().upper().ljust(6)[:6]
             year_part = exp.strftime("%y")  # Last 2 digits of year
             month_day = exp.strftime("%m%d")  # MMDD
             type_part = option_type.upper()
@@ -775,15 +988,69 @@ class TastytradeClient:
         Returns:
             List of matching symbols with metadata
         """
+        cache_key = query.strip().upper()
+        if not cache_key:
+            return []
+        shared_components = {"query": cache_key}
+        cached = self._get_timed_cache(
+            self._symbol_search_cache,
+            self._symbol_search_cache_lock,
+            cache_key,
+            self._symbol_search_cache_ttl_seconds,
+        )
+        if cached is not None:
+            return cached
+
+        shared_result = self._shared_cache.get_json(
+            "symbol_search", shared_components
+        )
+        if self._is_cacheable_symbol_results(shared_result):
+            self._set_timed_cache(
+                self._symbol_search_cache,
+                self._symbol_search_cache_lock,
+                cache_key,
+                shared_result,
+            )
+            return shared_result
+
+        lease_owner = self._shared_cache.acquire_fill_lease(
+            "symbol_search", shared_components
+        )
+        if not lease_owner:
+            shared_result = self._shared_cache.wait_for_json(
+                "symbol_search", shared_components
+            )
+            if self._is_cacheable_symbol_results(shared_result):
+                self._set_timed_cache(
+                    self._symbol_search_cache,
+                    self._symbol_search_cache_lock,
+                    cache_key,
+                    shared_result,
+                )
+                return shared_result
+
         if not self._ensure_token():
-            # Fallback: If Tastytrade not configured, use Yahoo Finance to validate
-            logger.info(f"Tastytrade not configured, using Yahoo Finance fallback for: {query}")
-            return self._search_symbols_fallback(query)
+            # A verified Yahoo response is provider data and is safe to share.
+            # The synthetic "let the user proceed" response remains uncached.
+            self._shared_cache.record_fallback("symbol_search")
+            logger.info(
+                "Tastytrade not configured, using Yahoo Finance fallback for: %s",
+                cache_key,
+            )
+            results, provider_succeeded = (
+                self._search_symbols_fallback_result(cache_key)
+            )
+            if provider_succeeded:
+                self._cache_symbol_search_results(
+                    cache_key, shared_components, results
+                )
+            return results
 
         try:
+            self._shared_cache.record_provider_fetch("symbol_search")
             response = self._request(
                 "GET",
-                f"{TASTYTRADE_API_URL}/symbols/search/{query}",
+                f"{TASTYTRADE_API_URL}/symbols/search/{cache_key}",
                 headers={"Authorization": f"Bearer {self._access_token}"},
                 timeout=10.0
             )
@@ -806,26 +1073,69 @@ class TastytradeClient:
                         "type": "INDEX" if instrument_type == "Index" else ("ETF" if is_etf else "EQUITY")
                     })
 
+            self._cache_symbol_search_results(
+                cache_key, shared_components, results
+            )
             return results
 
         except Exception as e:
+            self._shared_cache.record_fallback("symbol_search")
             logger.error(f"Error searching symbols via Tastytrade: {e}, falling back to Yahoo Finance")
-            return self._search_symbols_fallback(query)
+            results, provider_succeeded = (
+                self._search_symbols_fallback_result(cache_key)
+            )
+            if provider_succeeded:
+                self._cache_symbol_search_results(
+                    cache_key, shared_components, results
+                )
+            return results
+
+    def _cache_symbol_search_results(
+        self,
+        cache_key: str,
+        shared_components: Dict[str, str],
+        results: list,
+    ) -> None:
+        if not self._is_cacheable_symbol_results(results):
+            return
+        self._shared_cache.set_json(
+            "symbol_search",
+            shared_components,
+            results,
+            int(self._symbol_search_cache_ttl_seconds),
+        )
+        self._set_timed_cache(
+            self._symbol_search_cache,
+            self._symbol_search_cache_lock,
+            cache_key,
+            results,
+        )
 
     def _search_symbols_fallback(self, query: str) -> list:
-        """
-        Fallback symbol search using Yahoo Finance validation.
+        """Return Yahoo results while preserving the historical list API."""
+        results, _provider_succeeded = self._search_symbols_fallback_result(
+            query
+        )
+        return results
 
-        This is used when Tastytrade is unavailable or returns no results.
+    def _search_symbols_fallback_result(
+        self, query: str
+    ) -> tuple[list, bool]:
+        """
+        Return Yahoo symbol results and whether they came from a valid response.
+
+        Error-derived defaults intentionally report False so callers never
+        cache them.
         """
         import yfinance as yf
 
         if not query or len(query.strip()) < 1:
-            return []
+            return [], True
 
         query_upper = query.strip().upper()
 
         try:
+            self._shared_cache.record_provider_fetch("symbol_search")
             # Try to fetch info for the exact symbol from Yahoo Finance
             ticker = yf.Ticker(query_upper)
             info = ticker.info
@@ -842,10 +1152,10 @@ class TastytradeClient:
                         "name": long_name,
                         "exchange": info.get('exchange', 'Unknown'),
                         "type": quote_type
-                    }]
+                    }], True
 
             logger.info(f"No valid ticker found for: {query_upper}")
-            return []
+            return [], True
 
         except Exception as e:
             logger.warning(f"Yahoo Finance fallback search failed for {query}: {e}")
@@ -856,7 +1166,7 @@ class TastytradeClient:
                 "name": query_upper,
                 "exchange": "Unknown",
                 "type": "EQUITY"
-            }]
+            }], False
 
     def _generate_strikes_around_price(self, current_price: float) -> list:
         """
@@ -898,6 +1208,7 @@ class TastytradeClient:
     ) -> Dict[str, Any]:
         """Return a bounded cached chain and deduplicate concurrent misses."""
         cache_key = symbol.strip().upper()
+        shared_components = {"symbol": cache_key}
         now = time.monotonic()
 
         with self._option_chain_cache_lock:
@@ -909,6 +1220,24 @@ class TastytradeClient:
                     return deepcopy(cached_result)
                 del self._option_chain_cache[cache_key]
 
+        shared_result = self._shared_cache.get_json(
+            "option_chain", shared_components
+        )
+        if self._is_cacheable_option_chain(shared_result):
+            with self._option_chain_cache_lock:
+                self._option_chain_cache[cache_key] = (
+                    time.monotonic(),
+                    deepcopy(shared_result),
+                )
+                self._option_chain_cache.move_to_end(cache_key)
+                while (
+                    len(self._option_chain_cache)
+                    > self._option_chain_cache_max_entries
+                ):
+                    self._option_chain_cache.popitem(last=False)
+            return deepcopy(shared_result)
+
+        with self._option_chain_cache_lock:
             future = self._option_chain_inflight.get(cache_key)
             is_owner = future is None
             if future is None:
@@ -918,7 +1247,28 @@ class TastytradeClient:
         if not is_owner:
             return deepcopy(future.result())
 
-        result = self._fetch_option_chain(cache_key, current_price)
+        lease_owner = self._shared_cache.acquire_fill_lease(
+            "option_chain", shared_components
+        )
+        result = None
+        if not lease_owner:
+            shared_result = self._shared_cache.wait_for_json(
+                "option_chain", shared_components
+            )
+            if self._is_cacheable_option_chain(shared_result):
+                result = shared_result
+
+        if result is None:
+            self._shared_cache.record_provider_fetch("option_chain")
+            result = self._fetch_option_chain(cache_key, current_price)
+
+        if result.get("expirations"):
+            self._shared_cache.set_json(
+                "option_chain",
+                shared_components,
+                result,
+                int(self._option_chain_cache_ttl_seconds),
+            )
 
         with self._option_chain_cache_lock:
             if result.get("expirations"):
@@ -1075,9 +1425,30 @@ class TastytradeClient:
     @staticmethod
     def _is_cacheable_volatility_smile(result: Dict[str, Any]) -> bool:
         """Only cache a smile when the provider returned usable quote data."""
+        points = result.get("points", [])
+        if not isinstance(points, list) or not all(
+            isinstance(point, dict) for point in points
+        ):
+            return False
         return any(
             point.get("call_iv") is not None or point.get("put_iv") is not None
-            for point in result.get("points", [])
+            for point in points
+        )
+
+    @classmethod
+    def _is_valid_cached_volatility_smile(cls, value: Any) -> bool:
+        if not isinstance(value, dict):
+            return False
+        if not isinstance(value.get("points"), list):
+            return False
+        if not all(
+            field in value
+            for field in ("atm_iv", "skew_metric", "skew_basis")
+        ):
+            return False
+        return cls._is_cacheable_volatility_smile(value) or (
+            value.get("data_status") == "no_quotes"
+            and value["points"] == []
         )
 
     def get_volatility_smile(
@@ -1091,6 +1462,11 @@ class TastytradeClient:
         # Market data is cached upstream, making this stable during near/far
         # prefetch while preventing a later price snapshot from reusing it.
         cache_key = (symbol.upper(), expiration, round(current_price, 4))
+        shared_components = {
+            "symbol": cache_key[0],
+            "expiration": cache_key[1],
+            "spot": cache_key[2],
+        }
         now = time.monotonic()
 
         with self._skew_cache_lock:
@@ -1112,6 +1488,21 @@ class TastytradeClient:
                     return deepcopy(cached_result)
                 del self._skew_cache[cache_key]
 
+        shared_result = self._shared_cache.get_json(
+            "volatility_skew", shared_components
+        )
+        if self._is_valid_cached_volatility_smile(shared_result):
+            with self._skew_cache_lock:
+                self._skew_cache[cache_key] = (
+                    time.monotonic(),
+                    deepcopy(shared_result),
+                )
+                self._skew_cache.move_to_end(cache_key)
+                while len(self._skew_cache) > self._skew_cache_max_entries:
+                    self._skew_cache.popitem(last=False)
+            return deepcopy(shared_result)
+
+        with self._skew_cache_lock:
             future = self._skew_inflight.get(cache_key)
             is_owner = future is None
             if future is None:
@@ -1126,23 +1517,47 @@ class TastytradeClient:
             )
             return deepcopy(future.result())
 
-        try:
-            result = self._fetch_volatility_smile(
-                cache_key[0], expiration, current_price
+        lease_owner = self._shared_cache.acquire_fill_lease(
+            "volatility_skew", shared_components
+        )
+        result = None
+        if not lease_owner:
+            shared_result = self._shared_cache.wait_for_json(
+                "volatility_skew", shared_components
             )
-        except Exception as exc:
-            logger.exception(
-                "Unexpected error fetching volatility smile for %s: %s",
-                cache_key[0],
-                exc,
-            )
-            result = self._empty_volatility_smile(current_price)
+            if self._is_valid_cached_volatility_smile(shared_result):
+                result = shared_result
+
+        if result is None:
+            self._shared_cache.record_provider_fetch("volatility_skew")
+            try:
+                result = self._fetch_volatility_smile(
+                    cache_key[0], expiration, current_price
+                )
+            except Exception as exc:
+                logger.exception(
+                    "Unexpected error fetching volatility smile for %s: %s",
+                    cache_key[0],
+                    exc,
+                )
+                result = self._empty_volatility_smile(current_price)
 
         with self._skew_cache_lock:
             if (
                 self._is_cacheable_volatility_smile(result)
                 or result.get("data_status") == "no_quotes"
             ):
+                shared_ttl = (
+                    self._skew_negative_cache_ttl_seconds
+                    if result.get("data_status") == "no_quotes"
+                    else self._skew_cache_ttl_seconds
+                )
+                self._shared_cache.set_json(
+                    "volatility_skew",
+                    shared_components,
+                    result,
+                    int(shared_ttl),
+                )
                 self._skew_cache[cache_key] = (time.monotonic(), deepcopy(result))
                 self._skew_cache.move_to_end(cache_key)
                 while len(self._skew_cache) > self._skew_cache_max_entries:

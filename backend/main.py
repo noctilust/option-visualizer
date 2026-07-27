@@ -16,8 +16,10 @@ from market_data import MarketDataFetcher
 async def lifespan(_app: FastAPI):
     yield
     from tastytrade_client import close_tastytrade_client
+    from shared_cache import close_shared_cache
 
     close_tastytrade_client()
+    close_shared_cache()
 
 
 app = FastAPI(lifespan=lifespan)

@@ -14,6 +14,17 @@ jobs:
   test:
     name: Run Tests
     runs-on: ubuntu-latest
+
+    services:
+      valkey:
+        image: valkey/valkey:8-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "valkey-cli ping"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
     
     steps:
       - name: Checkout code
@@ -59,6 +70,8 @@ jobs:
           GEMINI_API_KEY: test-key
           TASTYTRADE_CLIENT_SECRET: test-secret
           TASTYTRADE_REFRESH_TOKEN: test-token
+          TEST_VALKEY_HOST: 127.0.0.1
+          TEST_VALKEY_PORT: 6379
 
   deploy:
     name: Build and Deploy
@@ -133,6 +146,7 @@ jobs:
           region: ${{ env.REGION }}
           image: gcr.io/${{ env.PROJECT_ID }}/${{ env.SERVICE }}:${{ github.sha }}
           flags: '--allow-unauthenticated'
+          env_vars_update_strategy: merge
           env_vars: |
             GEMINI_API_KEY=${{ secrets.GEMINI_API_KEY }}
             TASTYTRADE_CLIENT_SECRET=${{ secrets.TASTYTRADE_CLIENT_SECRET }}

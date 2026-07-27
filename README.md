@@ -30,6 +30,9 @@ Optional:
 - `DEFAULT_RISK_FREE_RATE` - Override default risk-free rate (default: 0.045)
 - `DEFAULT_IMPLIED_VOLATILITY` - Override default IV (default: 0.25)
 - `MARKET_DATA_CACHE_MINUTES` - Cache duration in minutes (default: 30)
+- `SHARED_CACHE_ENABLED` - Enable the optional fail-open shared Valkey cache (default: `false`)
+- `VALKEY_HOST`, `VALKEY_PORT`, `VALKEY_USERNAME`, `VALKEY_PASSWORD` - Private Memorystore connection settings
+- `VALKEY_MAX_CONNECTIONS`, `VALKEY_CONNECT_TIMEOUT_SECONDS`, `VALKEY_SOCKET_TIMEOUT_SECONDS` - Shared-cache pool and timeout controls
 
 ## Features
 
@@ -43,3 +46,6 @@ Optional:
 - **Frontend**: React + Vite + TailwindCSS + Recharts
 - **Backend**: FastAPI + Python
 - **Data**: Tastytrade API (IV Rank), Yahoo Finance (prices)
+
+Production cache provisioning and rollback are documented in
+[Shared Valkey cache operations](docs/shared-valkey-cache.md).

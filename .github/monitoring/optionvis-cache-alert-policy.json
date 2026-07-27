@@ -1,0 +1,92 @@
+{
+  "displayName": "OptionVis shared cache health",
+  "combiner": "OR",
+  "enabled": true,
+  "documentation": {
+    "content": "Fail open by setting SHARED_CACHE_ENABLED=false. Keep the instance for diagnosis and scale only after sustained pressure or latency evidence.",
+    "mimeType": "text/markdown"
+  },
+  "conditions": [
+    {
+      "displayName": "Valkey memory above 70% for 5 minutes",
+      "conditionThreshold": {
+        "filter": "resource.type=\"memorystore.googleapis.com/Instance\" AND resource.label.\"instance_id\"=\"optionvis-cache\" AND metric.type=\"memorystore.googleapis.com/instance/memory/maximum_utilization\"",
+        "comparison": "COMPARISON_GT",
+        "thresholdValue": 0.7,
+        "duration": "300s",
+        "aggregations": [{
+          "alignmentPeriod": "60s",
+          "perSeriesAligner": "ALIGN_MEAN",
+          "crossSeriesReducer": "REDUCE_MAX"
+        }],
+        "trigger": {"count": 1}
+      }
+    },
+    {
+      "displayName": "Valkey CPU above 75% for 5 minutes",
+      "conditionThreshold": {
+        "filter": "resource.type=\"memorystore.googleapis.com/Instance\" AND resource.label.\"instance_id\"=\"optionvis-cache\" AND metric.type=\"memorystore.googleapis.com/instance/cpu/maximum_utilization\"",
+        "comparison": "COMPARISON_GT",
+        "thresholdValue": 0.75,
+        "duration": "300s",
+        "aggregations": [{
+          "alignmentPeriod": "60s",
+          "perSeriesAligner": "ALIGN_MEAN",
+          "crossSeriesReducer": "REDUCE_MAX"
+        }],
+        "trigger": {"count": 1}
+      }
+    },
+    {
+      "displayName": "Any rejected Valkey connection",
+      "conditionThreshold": {
+        "filter": "resource.type=\"memorystore.googleapis.com/Instance\" AND resource.label.\"instance_id\"=\"optionvis-cache\" AND metric.type=\"memorystore.googleapis.com/instance/stats/total_rejected_connections_count\"",
+        "comparison": "COMPARISON_GT",
+        "thresholdValue": 0,
+        "duration": "0s",
+        "aggregations": [{
+          "alignmentPeriod": "60s",
+          "perSeriesAligner": "ALIGN_DELTA",
+          "crossSeriesReducer": "REDUCE_SUM"
+        }],
+        "trigger": {"count": 1}
+      }
+    },
+    {
+      "displayName": "Any unexpected Valkey eviction",
+      "conditionThreshold": {
+        "filter": "resource.type=\"memorystore.googleapis.com/Instance\" AND resource.label.\"instance_id\"=\"optionvis-cache\" AND metric.type=\"memorystore.googleapis.com/instance/stats/total_evicted_keys_count\"",
+        "comparison": "COMPARISON_GT",
+        "thresholdValue": 0,
+        "duration": "0s",
+        "aggregations": [{
+          "alignmentPeriod": "60s",
+          "perSeriesAligner": "ALIGN_DELTA",
+          "crossSeriesReducer": "REDUCE_SUM"
+        }],
+        "trigger": {"count": 1}
+      }
+    },
+    {
+      "displayName": "Application cache-error rate above 1%",
+      "conditionThreshold": {
+        "filter": "metric.type=\"logging.googleapis.com/user/optionvis_cache_errors\"",
+        "denominatorFilter": "metric.type=\"logging.googleapis.com/user/optionvis_cache_events\"",
+        "comparison": "COMPARISON_GT",
+        "thresholdValue": 0.01,
+        "duration": "300s",
+        "aggregations": [{
+          "alignmentPeriod": "60s",
+          "perSeriesAligner": "ALIGN_RATE",
+          "crossSeriesReducer": "REDUCE_SUM"
+        }],
+        "denominatorAggregations": [{
+          "alignmentPeriod": "60s",
+          "perSeriesAligner": "ALIGN_RATE",
+          "crossSeriesReducer": "REDUCE_SUM"
+        }],
+        "trigger": {"count": 1}
+      }
+    }
+  ]
+}
