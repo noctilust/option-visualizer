@@ -344,6 +344,7 @@ function VolatilitySkewContent({
               onExpirationsResolved={handleExpirationsResolved}
               isDark={isDark}
               autoSelectNextMonthly
+              showMonthlyFilter
             />
           </div>
         )}

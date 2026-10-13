@@ -19,6 +19,8 @@ interface ExpirationDropdownProps {
   compact?: boolean;
   /** Select the nearest future standard monthly expiration when no value is set. */
   autoSelectNextMonthly?: boolean;
+  /** Allow filtering the expiration list to standard monthly cycles. */
+  showMonthlyFilter?: boolean;
   /** Temporarily preview an expiration without committing the selection. */
   onPreviewChange?: (value: string | null) => void;
   /** Report the resolved expiration list and whether it came from the live chain. */
@@ -185,11 +187,13 @@ export default function ExpirationDropdown({
   compact = false,
   symbol = '',
   autoSelectNextMonthly = false,
+  showMonthlyFilter = false,
   onPreviewChange,
   onExpirationsResolved,
   valueFormat = 'iso'
 }: ExpirationDropdownProps) {
   const [isOpen, setIsOpen] = useState(false);
+  const [monthlyOnly, setMonthlyOnly] = useState(false);
   const [dropdownPosition, setDropdownPosition] = useState({ top: 0, left: 0, width: 0 });
   const dropdownRef = useRef<HTMLDivElement>(null);
   const buttonRef = useRef<HTMLButtonElement>(null);
@@ -354,6 +358,9 @@ export default function ExpirationDropdown({
 
   // Get current option for display
   const currentOption = options.find(opt => opt.value === currentValueIso);
+  const visibleOptions = showMonthlyFilter && monthlyOnly
+    ? options.filter(option => !option.isWeekly)
+    : options;
 
   const handleSelect = (isoValue: string) => {
     clearPreview();
@@ -453,9 +460,6 @@ export default function ExpirationDropdown({
       {isOpen && (
         <div
           ref={dropdownRef}
-          role="listbox"
-          aria-label="Expiration cycles"
-          onMouseLeave={clearPreview}
           onBlur={(event) => {
             if (!event.currentTarget.contains(event.relatedTarget)) {
               clearPreview();
@@ -473,49 +477,70 @@ export default function ExpirationDropdown({
           <div className="px-2 py-1.5 text-xs font-medium border-b border-border text-muted-foreground">
             {apiLoading ? 'Loading...' : 'Hover to preview'}
           </div>
+          {showMonthlyFilter && (
+            <label className="flex items-center gap-2 px-2 py-2 text-xs text-popover-foreground border-b border-border cursor-pointer">
+              <input
+                type="checkbox"
+                checked={monthlyOnly}
+                onChange={(event) => {
+                  clearPreview();
+                  setMonthlyOnly(event.target.checked);
+                }}
+                className="accent-primary"
+              />
+              Monthly only
+            </label>
+          )}
 
           {/* Options */}
-          {options.map(opt => {
-            const isSelected = opt.value === currentValueIso;
-            return (
-              <button
-                type="button"
-                role="option"
-                aria-selected={isSelected}
-                key={opt.value}
-                onMouseEnter={() => schedulePreview(opt.value)}
-                onFocus={() => schedulePreview(opt.value)}
-                onClick={() => handleSelect(opt.value)}
-                className={`w-full px-2 py-1.5 cursor-pointer flex items-center gap-2 text-left text-popover-foreground transition-colors ${
-                  isSelected ? 'bg-primary/15' : 'hover:bg-muted'
-                }`}
-              >
-                {isSelected && (
-                  <svg width="14" height="14" viewBox="0 0 16 16" fill="none" className="flex-shrink-0">
-                    <path
-                      d="M13.3333 4L6 11.3333L2.66667 8"
-                      stroke="currentColor"
-                      strokeWidth="2"
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                    />
-                  </svg>
-                )}
-                {!isSelected && <div style={{ width: '14px' }} className="flex-shrink-0" />}
-                <span className="font-medium text-xs">
-                  {opt.label} • {opt.daysToExpiration}d
-                </span>
-                {opt.isWeekly && (
-                  <span
-                    className="px-1.5 py-0 rounded text-xs font-bold flex-shrink-0 ml-auto bg-muted text-muted-foreground border border-border"
-                    style={{ lineHeight: '1.4' }}
-                  >
-                    W
+          <div role="listbox" aria-label="Expiration cycles" onMouseLeave={clearPreview}>
+            {visibleOptions.map(opt => {
+              const isSelected = opt.value === currentValueIso;
+              return (
+                <button
+                  type="button"
+                  role="option"
+                  aria-selected={isSelected}
+                  key={opt.value}
+                  onMouseEnter={() => schedulePreview(opt.value)}
+                  onFocus={() => schedulePreview(opt.value)}
+                  onClick={() => handleSelect(opt.value)}
+                  className={`w-full px-2 py-1.5 cursor-pointer flex items-center gap-2 text-left text-popover-foreground transition-colors ${
+                    isSelected ? 'bg-primary/15' : 'hover:bg-muted'
+                  }`}
+                >
+                  {isSelected && (
+                    <svg width="14" height="14" viewBox="0 0 16 16" fill="none" className="flex-shrink-0">
+                      <path
+                        d="M13.3333 4L6 11.3333L2.66667 8"
+                        stroke="currentColor"
+                        strokeWidth="2"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                      />
+                    </svg>
+                  )}
+                  {!isSelected && <div style={{ width: '14px' }} className="flex-shrink-0" />}
+                  <span className="font-medium text-xs">
+                    {opt.label} • {opt.daysToExpiration}d
                   </span>
-                )}
-              </button>
-            );
-          })}
+                  {opt.isWeekly && (
+                    <span
+                      className="px-1.5 py-0 rounded text-xs font-bold flex-shrink-0 ml-auto bg-muted text-muted-foreground border border-border"
+                      style={{ lineHeight: '1.4' }}
+                    >
+                      W
+                    </span>
+                  )}
+                </button>
+              );
+            })}
+          </div>
+          {visibleOptions.length === 0 && (
+            <p role="status" className="px-2 py-3 text-xs text-muted-foreground">
+              No monthly expirations available.
+            </p>
+          )}
         </div>
       )}
     </div>

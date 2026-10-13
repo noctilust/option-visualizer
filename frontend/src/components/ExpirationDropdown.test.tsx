@@ -265,6 +265,66 @@ describe('ExpirationDropdown monthly auto-selection', () => {
   });
 });
 
+describe('ExpirationDropdown monthly filter', () => {
+  beforeEach(() => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(FIXED_NOW);
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.restoreAllMocks();
+    vi.unstubAllGlobals();
+  });
+
+  it('filters live expirations, preserves the selection, and restores weeklies when disabled', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => optionChainResponse([
+      '2026-08-07', '2026-08-21', '2026-09-18',
+    ])));
+    const onChange = vi.fn();
+    const onPreviewChange = vi.fn();
+    render(
+      <ExpirationDropdown symbol="SPY" value="2026-08-07" onChange={onChange}
+        onPreviewChange={onPreviewChange} showMonthlyFilter />,
+    );
+    fireEvent.click(screen.getByRole('button'));
+    await screen.findByRole('option', { name: /Aug 7/ });
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Monthly only' }));
+    expect(screen.queryByRole('option', { name: /Aug 7/ })).not.toBeInTheDocument();
+    expect(screen.getAllByRole('option')).toHaveLength(2);
+    expect(onChange).not.toHaveBeenCalled();
+    expect(onPreviewChange).toHaveBeenLastCalledWith(null);
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Monthly only' }));
+    expect(screen.getByRole('option', { name: /Aug 7/ })).toHaveAttribute('aria-selected', 'true');
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Monthly only' }));
+    fireEvent.click(screen.getByRole('option', { name: /Aug 21/ }));
+    expect(onChange).toHaveBeenCalledWith('2026-08-21');
+    fireEvent.click(screen.getByRole('button'));
+    expect(screen.getByRole('checkbox', { name: 'Monthly only' })).toBeChecked();
+    expect(screen.getAllByRole('option')).toHaveLength(2);
+  });
+
+  it('shows an empty state when the live chain has only weeklies', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => optionChainResponse(['2026-08-07'])));
+    render(<ExpirationDropdown symbol="SPY" value="2026-08-07" onChange={vi.fn()} showMonthlyFilter />);
+    fireEvent.click(screen.getByRole('button'));
+    await screen.findByRole('option', { name: /Aug 7/ });
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Monthly only' }));
+    expect(screen.queryAllByRole('option')).toHaveLength(0);
+    expect(screen.getByRole('status')).toHaveTextContent('No monthly expirations available.');
+  });
+
+  it('filters generated fallback dates including a custom weekly selection', () => {
+    render(<ExpirationDropdown value="2026-08-05" onChange={vi.fn()} showMonthlyFilter />);
+    fireEvent.click(screen.getByRole('button'));
+    expect(screen.getByRole('option', { name: /Aug 5/ })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Monthly only' }));
+    expect(screen.queryByRole('option', { name: /Aug 5/ })).not.toBeInTheDocument();
+    expect(screen.getByRole('option', { name: /Aug 21/ })).toBeInTheDocument();
+    expect(screen.queryAllByText('W')).toHaveLength(1); // Current selection remains visible in the trigger.
+  });
+});
+
 describe('ExpirationDropdown hover preview', () => {
   beforeEach(() => {
     vi.useFakeTimers();
