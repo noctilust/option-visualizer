@@ -267,11 +267,13 @@ describe('ExpirationDropdown monthly auto-selection', () => {
 
 describe('ExpirationDropdown monthly filter', () => {
   beforeEach(() => {
+    sessionStorage.clear();
     vi.useFakeTimers({ toFake: ['Date'] });
     vi.setSystemTime(FIXED_NOW);
   });
 
   afterEach(() => {
+    sessionStorage.clear();
     vi.useRealTimers();
     vi.restoreAllMocks();
     vi.unstubAllGlobals();
@@ -312,6 +314,30 @@ describe('ExpirationDropdown monthly filter', () => {
     fireEvent.click(screen.getByRole('checkbox', { name: 'Monthly only' }));
     expect(screen.queryAllByRole('option')).toHaveLength(0);
     expect(screen.getByRole('status')).toHaveTextContent('No monthly expirations available.');
+  });
+
+  it('remembers both enabling and disabling the filter when switching underlying remounts the picker', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => optionChainResponse([
+      '2026-08-07', '2026-08-21',
+    ])));
+    const { rerender } = render(
+      <ExpirationDropdown key="SPY" symbol="SPY" value="2026-08-21" onChange={vi.fn()} showMonthlyFilter />,
+    );
+    fireEvent.click(screen.getByRole('button'));
+    await screen.findByRole('option', { name: /Aug 7/ });
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Monthly only' }));
+
+    rerender(<ExpirationDropdown key="QQQ" symbol="QQQ" value="2026-08-21" onChange={vi.fn()} showMonthlyFilter />);
+    fireEvent.click(screen.getByRole('button'));
+    await screen.findByRole('option', { name: /Aug 21/ });
+    expect(screen.getByRole('checkbox', { name: 'Monthly only' })).toBeChecked();
+    expect(screen.queryByRole('option', { name: /Aug 7/ })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Monthly only' }));
+
+    rerender(<ExpirationDropdown key="SPY" symbol="SPY" value="2026-08-21" onChange={vi.fn()} showMonthlyFilter />);
+    fireEvent.click(screen.getByRole('button'));
+    expect(await screen.findByRole('option', { name: /Aug 7/ })).toBeInTheDocument();
+    expect(screen.getByRole('checkbox', { name: 'Monthly only' })).not.toBeChecked();
   });
 
   it('filters generated fallback dates including a custom weekly selection', () => {

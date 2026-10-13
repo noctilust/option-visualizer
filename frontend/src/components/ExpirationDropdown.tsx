@@ -2,6 +2,7 @@ import { useCallback, useMemo, useState, useRef, useEffect } from 'react';
 import { useOptionChain } from '../hooks/useOptionChain';
 
 const PREVIEW_DELAY_MS = 150;
+const MONTHLY_ONLY_SESSION_KEY = 'volatility-skew-monthly-only';
 
 interface ExpirationOption {
   value: string;  // ISO format YYYY-MM-DD
@@ -193,7 +194,14 @@ export default function ExpirationDropdown({
   valueFormat = 'iso'
 }: ExpirationDropdownProps) {
   const [isOpen, setIsOpen] = useState(false);
-  const [monthlyOnly, setMonthlyOnly] = useState(false);
+  const [monthlyOnly, setMonthlyOnly] = useState(() => {
+    if (!showMonthlyFilter) return false;
+    try {
+      return sessionStorage.getItem(MONTHLY_ONLY_SESSION_KEY) === 'true';
+    } catch {
+      return false;
+    }
+  });
   const [dropdownPosition, setDropdownPosition] = useState({ top: 0, left: 0, width: 0 });
   const dropdownRef = useRef<HTMLDivElement>(null);
   const buttonRef = useRef<HTMLButtonElement>(null);
@@ -485,6 +493,11 @@ export default function ExpirationDropdown({
                 onChange={(event) => {
                   clearPreview();
                   setMonthlyOnly(event.target.checked);
+                  try {
+                    sessionStorage.setItem(MONTHLY_ONLY_SESSION_KEY, String(event.target.checked));
+                  } catch {
+                    // Keep the filter usable when browser storage is unavailable.
+                  }
                 }}
                 className="accent-primary"
               />
