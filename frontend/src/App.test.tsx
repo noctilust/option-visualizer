@@ -72,7 +72,11 @@ vi.mock('./hooks/useCalculation', () => ({
 
 vi.mock('./hooks/useChartZoom', () => ({
   useChartZoom: () => ({
-    deferredZoomRange: { startIndex: 0, endIndex: 0 },
+    zoomStore: {
+      get: () => ({ startIndex: 0, endIndex: 0 }),
+      set: vi.fn(),
+      subscribe: () => () => {},
+    },
     chartContainerRef: { current: null },
     handleZoomIn: vi.fn(),
     handleZoomOut: vi.fn(),
@@ -81,7 +85,6 @@ vi.mock('./hooks/useChartZoom', () => ({
     handleChartMouseMove: vi.fn(),
     handleChartMouseUp: vi.fn(),
     handleChartMouseLeave: vi.fn(),
-    xAxisTicks: [],
   }),
 }));
 

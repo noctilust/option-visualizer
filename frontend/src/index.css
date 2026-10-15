@@ -154,7 +154,7 @@
   }
 
   .segmented-item[aria-pressed="true"] {
-    @apply bg-card text-foreground;
+    @apply bg-primary text-primary-foreground shadow-sm;
   }
 }
 

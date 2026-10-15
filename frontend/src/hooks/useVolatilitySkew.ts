@@ -125,6 +125,12 @@ async function requestSkewData(symbol: string, expiration: string): Promise<Skew
   return request;
 }
 
+/** One-off skew fetch that shares the hook's cache and in-flight deduplication. */
+export function getSkewData(symbol: string, expiration: string): Promise<SkewData> {
+  const normalized = normalizeRequest(symbol, expiration);
+  return requestSkewData(normalized.symbol, normalized.expiration);
+}
+
 /**
  * Clears the shared skew cache. Exported for focused tests and explicit session resets.
  */

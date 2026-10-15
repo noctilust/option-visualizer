@@ -4,6 +4,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI, UploadFile, File, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
+from concurrent.futures import ThreadPoolExecutor
 from typing import List
 from datetime import date, datetime
 import image_parser
@@ -82,8 +83,47 @@ async def search_symbols(q: str = ""):
         print(f"Symbol search error: {e}")
         return {"results": []}
 
+def _optional_lookup(fn, *args, default=None):
+    try:
+        return fn(*args)
+    except Exception as e:
+        print(f"Warning: optional market data lookup {fn.__name__} failed: {e}")
+        return default
+
+
+def build_market_data(symbol: str) -> dict:
+    """Price, volatility and corporate-event data for an underlying."""
+    stock_price = market_data_fetcher.get_stock_price(symbol)
+    iv = market_data_fetcher.get_implied_volatility(symbol)
+
+    with ThreadPoolExecutor(max_workers=6) as executor:
+        risk_free_rate = executor.submit(market_data_fetcher.get_risk_free_rate)
+        iv_rank = executor.submit(_optional_lookup, market_data_fetcher.calculate_iv_rank, symbol, iv)
+        iv_percentile = executor.submit(_optional_lookup, market_data_fetcher.get_iv_percentile, symbol)
+        historical_volatility = executor.submit(
+            _optional_lookup, market_data_fetcher.calculate_historical_volatility, symbol
+        )
+        dividend_yield = executor.submit(
+            _optional_lookup, market_data_fetcher.get_dividend_yield, symbol, default=0.0
+        )
+        earnings_date = executor.submit(_optional_lookup, market_data_fetcher.get_next_earnings_date, symbol)
+
+    return {
+        "symbol": symbol.upper(),
+        "current_price": stock_price,
+        "implied_volatility": iv,
+        "iv_rank": iv_rank.result(),
+        "iv_percentile": iv_percentile.result(),
+        "historical_volatility": historical_volatility.result(),
+        "dividend_yield": dividend_yield.result() or 0.0,
+        "earnings_date": earnings_date.result(),
+        "risk_free_rate": risk_free_rate.result(),
+        "timestamp": datetime.now(),
+    }
+
+
 @app.get("/market-data/{symbol}")
-async def get_market_data(symbol: str):
+def get_market_data(symbol: str):
     """
     Fetch current market data for a symbol
 
@@ -91,28 +131,13 @@ async def get_market_data(symbol: str):
         symbol: Stock ticker symbol (e.g., 'AAPL')
 
     Returns:
-        Market data including current price, implied volatility, and risk-free rate
+        Market data including price, IV, IV Rank/Percentile, HV, dividend yield,
+        next earnings date and risk-free rate
     """
     try:
-        stock_price = market_data_fetcher.get_stock_price(symbol)
-
-        # Get implied volatility (will use HV as fallback)
-        iv = market_data_fetcher.get_implied_volatility(symbol)
-
-        # Get risk-free rate
-        risk_free_rate = market_data_fetcher.get_risk_free_rate()
-        
-        # Calculate IV Rank
-        iv_rank = market_data_fetcher.calculate_iv_rank(symbol, iv)
-
-        return {
-            "symbol": symbol.upper(),
-            "current_price": stock_price,
-            "implied_volatility": iv,
-            "iv_rank": iv_rank,
-            "risk_free_rate": risk_free_rate,
-            "timestamp": datetime.now().isoformat()
-        }
+        market_data = build_market_data(symbol)
+        market_data["timestamp"] = market_data["timestamp"].isoformat()
+        return market_data
     except Exception as e:
         raise HTTPException(
             status_code=500,
@@ -261,19 +286,7 @@ def calculate_pl(request: CalculateRequest):
         market_data = None
         if request.symbol:
             try:
-                # Get market data for Black-Scholes calculation
-                stock_price = market_data_fetcher.get_stock_price(request.symbol)
-                iv = market_data_fetcher.get_implied_volatility(request.symbol)
-                risk_free_rate = market_data_fetcher.get_risk_free_rate()
-
-                market_data = {
-                    'symbol': request.symbol.upper(),
-                    'current_price': stock_price,
-                    'implied_volatility': iv,
-                    'iv_rank': market_data_fetcher.calculate_iv_rank(request.symbol, iv),
-                    'risk_free_rate': risk_free_rate,
-                    'timestamp': datetime.now()
-                }
+                market_data = build_market_data(request.symbol)
             except Exception as e:
                 # If market data fetch fails, log but continue with intrinsic value
                 print(f"Warning: Could not fetch market data for {request.symbol}: {e}")
@@ -301,7 +314,9 @@ def calculate_pl(request: CalculateRequest):
             use_theoretical_pricing=request.use_theoretical_pricing,
             skip_greeks_curve=request.skip_greeks_curve,
             eval_days_from_now=request.eval_days_from_now,
-            precompute_dates=request.precompute_dates
+            precompute_dates=request.precompute_dates,
+            iv_shift=request.iv_shift,
+            profit_target_pct=request.profit_target_pct,
         )
 
         # Return result (backward compatible: if no market data, returns simple format)

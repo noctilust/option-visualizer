@@ -1,4 +1,4 @@
-import { useEffect, useRef, lazy, Suspense, useMemo } from 'react';
+import { useEffect, useRef, lazy, Suspense, useMemo, useState } from 'react';
 import { Sun, Moon, RotateCcw, TrendingUp, Loader2, DollarSign, Activity, BarChart3, Percent } from 'lucide-react';
 import { Toaster } from 'react-hot-toast';
 
@@ -22,60 +22,17 @@ import Button from './components/Button';
 import Collapsible from './components/Collapsible';
 import SectionCard from './components/SectionCard';
 import StickyHeader from './components/StickyHeader';
+import SellerMetricsPanel from './components/SellerMetricsPanel';
+import IvScenarioControl from './components/IvScenarioControl';
+import DeltaStrikePicker from './components/DeltaStrikePicker';
+import { parsePositionExpiration } from './utils/expiration';
+import type { ManagementSettings } from './types';
 
 // Components - Lazy loaded when their chart sections become available
 const PLChart = lazy(() => import('./components/PLChart'));
 const VolatilitySkewPanel = lazy(() => import('./components/VolatilitySkew/VolatilitySkewPanel'));
 const GreeksChart = lazy(() => import('./components/GreeksChart'));
 const GreeksVisualization = lazy(() => import('./components/GreeksVisualization'));
-
-/**
- * Parse position expiration format (e.g., "Dec 19 25" or "Dec 19") to ISO date (YYYY-MM-DD)
- *
- * Handles year logic:
- * - If year is provided (e.g., "Dec 19 25"), use that year (2025)
- * - If no year (e.g., "Jan 16"), use current year
- * - If resulting date is in the past, increment to next year
- */
-function parsePositionExpiration(expiration: string): string | null {
-  if (!expiration) return null;
-
-  try {
-    // Format: "Dec 19 25" or "Dec 19"
-    const parts = expiration.trim().split(/\s+/);
-    if (parts.length < 2) return null;
-
-    const monthStr = parts[0];
-    const dayStr = parts[1];
-    const currentYear = new Date().getFullYear();
-    const yearStr = parts[2] || currentYear.toString().slice(-2);
-
-    // Convert month name to number
-    const months: Record<string, number> = {
-      Jan: 0, Feb: 1, Mar: 2, Apr: 3, May: 4, Jun: 5,
-      Jul: 6, Aug: 7, Sep: 8, Oct: 9, Nov: 10, Dec: 11
-    };
-    const month = months[monthStr];
-    if (month === undefined) return null;
-
-    const day = parseInt(dayStr, 10);
-    let year = 2000 + parseInt(yearStr, 10);
-
-    const date = new Date(year, month, day);
-    const now = new Date();
-
-    // If date is in the past and no explicit year was provided, use next year
-    if (date < now && parts.length < 3) {
-      year += 1;
-      const newDate = new Date(year, month, day);
-      return newDate.toISOString().split('T')[0];
-    }
-
-    return date.toISOString().split('T')[0];
-  } catch {
-    return null;
-  }
-}
 
 /**
  * Tone class for the IV Rank value: low rank reads as favorable (positive),
@@ -86,6 +43,17 @@ function ivRankTone(rank: number | null | undefined): string {
   if (rank < 30) return 'text-positive';
   if (rank > 70) return 'text-negative';
   return 'text-foreground';
+}
+
+const DEFAULT_MANAGEMENT: ManagementSettings = {
+  profitTargetPct: 50,
+  stopMultiple: 2,
+  managementDte: 21,
+};
+
+function formatShortDate(isoDate: string): string {
+  const [year, month, day] = isoDate.split('-').map(Number);
+  return new Date(year, month - 1, day).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
 }
 
 function App() {
@@ -107,6 +75,8 @@ function App() {
     && marketData?.symbol.toUpperCase() === symbol.trim().toUpperCase()
       ? marketData
       : null;
+
+  const [management, setManagement] = useState<ManagementSettings>(DEFAULT_MANAGEMENT);
 
   // Calculation hook
   const {
@@ -131,15 +101,37 @@ function App() {
     setEvalDaysFromNow,
     maxDaysToExpiration,
     precomputedDates,
+    probabilityMetrics,
+    sellerMetrics,
+    ivShiftPct,
+    setIvShiftPct,
+    ivPreviewStore,
+    ivScenarioBase,
     uploadResetKey,
     handleFileSelect,
     handleManualEntry,
     handleStartOver,
-  } = useCalculation({ symbol, marketData, setMarketData });
+  } = useCalculation({ symbol, marketData, setMarketData, profitTargetPct: management.profitTargetPct });
+
+  const netCredit = (parseFloat(credit) || 0) * (isDebit ? -1 : 1);
+  const isCalculating = loadingStates.chart || loadingStates.greeks;
+  const calculatingStatus = (
+    <div className="flex items-center gap-2" role="status">
+      <Loader2 className="h-4 w-4 animate-spin text-primary" aria-hidden="true" />
+      <span className="text-sm text-muted-foreground">
+        {loadingStates.chart && loadingStates.greeks && 'Calculating P/L and Greeks...'}
+        {loadingStates.chart && !loadingStates.greeks && 'Calculating P/L...'}
+        {!loadingStates.chart && loadingStates.greeks && 'Loading Greeks data...'}
+      </span>
+    </div>
+  );
+  const ivHvSpread = marketData?.historical_volatility
+    ? (marketData.implied_volatility - marketData.historical_volatility) * 100
+    : null;
 
   // Chart zoom hook
   const {
-    deferredZoomRange,
+    zoomStore,
     chartContainerRef,
     handleZoomIn,
     handleZoomOut,
@@ -148,8 +140,7 @@ function App() {
     handleChartMouseMove,
     handleChartMouseUp,
     handleChartMouseLeave,
-    xAxisTicks,
-  } = useChartZoom({ chartData, positions });
+  } = useChartZoom({ chartData, positions, currentPrice: marketData?.current_price });
 
   // Ref for scrolling to analysis section
   const analysisSectionRef = useRef<HTMLElement>(null);
@@ -332,6 +323,11 @@ function App() {
                       <span className="text-xs text-muted-foreground font-medium">Current Price</span>
                     </div>
                     <div className="text-lg font-semibold tabular-nums text-foreground">${marketData.current_price.toFixed(2)}</div>
+                    {marketData.earnings_date && (
+                      <div className="text-xs text-muted-foreground mt-0.5">
+                        Earnings {formatShortDate(marketData.earnings_date)}
+                      </div>
+                    )}
                   </div>
 
                   {/* Implied Volatility */}
@@ -343,6 +339,18 @@ function App() {
                       </HelpTooltip>
                     </div>
                     <div className="text-lg font-semibold tabular-nums text-foreground">{(marketData.implied_volatility * 100).toFixed(1)}%</div>
+                    {marketData.historical_volatility != null && ivHvSpread !== null && (
+                      <div className="text-xs text-muted-foreground tabular-nums mt-0.5">
+                        <HelpTooltip term="iv-hv">
+                          <span>
+                            HV20 {(marketData.historical_volatility * 100).toFixed(1)}%{' '}
+                            <span className={ivHvSpread >= 0 ? 'text-positive' : 'text-negative'}>
+                              ({ivHvSpread >= 0 ? '+' : ''}{ivHvSpread.toFixed(1)})
+                            </span>
+                          </span>
+                        </HelpTooltip>
+                      </div>
+                    )}
                   </div>
 
                   {/* IV Rank */}
@@ -358,6 +366,11 @@ function App() {
                         ? `${marketData.iv_rank.toFixed(0)}%`
                         : 'N/A'}
                     </div>
+                    {marketData.iv_percentile != null && (
+                      <div className="text-xs text-muted-foreground tabular-nums mt-0.5">
+                        IV Percentile {marketData.iv_percentile.toFixed(0)}%
+                      </div>
+                    )}
                   </div>
 
                   {/* Risk-Free Rate */}
@@ -369,6 +382,11 @@ function App() {
                       </HelpTooltip>
                     </div>
                     <div className="text-lg font-semibold tabular-nums text-foreground">{(marketData.risk_free_rate * 100).toFixed(2)}%</div>
+                    {marketData.dividend_yield !== undefined && (
+                      <div className="text-xs text-muted-foreground tabular-nums mt-0.5">
+                        Dividend yield {(marketData.dividend_yield * 100).toFixed(2)}%
+                      </div>
+                    )}
                   </div>
                 </div>
               )}
@@ -464,6 +482,11 @@ function App() {
                   </label>
                 }
               >
+                <DeltaStrikePicker
+                  symbol={symbol}
+                  positions={positions}
+                  setPositions={setPositions}
+                />
                 <PositionsTable
                   positions={positions}
                   setPositions={setPositions}
@@ -480,28 +503,25 @@ function App() {
                 title="Set the opening price"
                 description="Enter the credit received or debit paid to open this position."
               >
-                <InputSection credit={credit} setCredit={setCredit} isDebit={isDebit} setIsDebit={setIsDebit} />
+                <InputSection
+                  credit={credit}
+                  setCredit={setCredit}
+                  isDebit={isDebit}
+                  setIsDebit={setIsDebit}
+                  marketCredit={sellerMetrics?.market_credit}
+                />
               </SectionCard>
             </>
           )}
 
-          {/* Loading indicator - skeleton chart */}
-          {(loadingStates.chart || loadingStates.greeks) && positions.length > 0 && credit && (
+          {/* Skeleton only until the first chart exists; recalculations keep the chart in place */}
+          {isCalculating && chartData.length === 0 && positions.length > 0 && credit && (
             <SectionCard
               step={5}
               label="P/L Analysis"
               title="Payoff surface"
               description="View profit/loss projections, Greeks, and volatility analysis for your strategy."
-              action={
-                <div className="flex items-center gap-3">
-                  <Loader2 className="h-5 w-5 animate-spin text-primary" />
-                  <span className="text-sm text-muted-foreground">
-                    {loadingStates.chart && loadingStates.greeks && 'Calculating P/L and Greeks...'}
-                    {loadingStates.chart && !loadingStates.greeks && 'Calculating P/L...'}
-                    {!loadingStates.chart && loadingStates.greeks && 'Loading Greeks data...'}
-                  </span>
-                </div>
-              }
+              action={calculatingStatus}
             >
               <ChartSkeleton />
             </SectionCard>
@@ -516,22 +536,30 @@ function App() {
               title="Payoff surface"
               description="View profit/loss projections, Greeks, and volatility analysis for your strategy."
               action={
-                <Button
-                  onClick={handleStartOver}
-                  leftIcon={<RotateCcw size={14} />}
-                  className="min-w-[140px]"
-                >
-                  Start Over
-                </Button>
+                <div className="flex items-center gap-4">
+                  {isCalculating && calculatingStatus}
+                  <Button
+                    onClick={handleStartOver}
+                    leftIcon={<RotateCcw size={14} />}
+                    className="min-w-[140px]"
+                  >
+                    Start Over
+                  </Button>
+                </div>
               }
             >
+              <SellerMetricsPanel
+                probabilityMetrics={probabilityMetrics}
+                sellerMetrics={sellerMetrics}
+                settings={management}
+                onSettingsChange={setManagement}
+              />
               <Suspense fallback={<ChartSkeleton />}>
                 <PLChart
                   chartData={chartData}
                   positions={positions}
                   marketData={marketData}
-                  zoomRange={deferredZoomRange}
-                  xAxisTicks={xAxisTicks}
+                  zoomStore={zoomStore}
                   isDark={isDark}
                   chartContainerRef={chartContainerRef}
                   onZoomIn={handleZoomIn}
@@ -543,17 +571,27 @@ function App() {
                   onMouseLeave={handleChartMouseLeave}
                   evalDaysFromNow={evalDaysFromNow}
                   precomputedDates={precomputedDates}
+                  probabilityMetrics={probabilityMetrics}
+                  sellerMetrics={sellerMetrics}
+                  management={management}
+                  netCredit={netCredit}
+                  ivPreviewStore={ivPreviewStore}
+                  ivScenarioBase={ivScenarioBase}
                 />
               </Suspense>
 
               {/* Date Selector for P/L at different dates */}
               {maxDaysToExpiration !== null && maxDaysToExpiration > 0 && (
-                <div className="mt-6">
+                <div className="mt-6 space-y-3">
                   <DateSelector
                     evalDaysFromNow={evalDaysFromNow}
                     setEvalDaysFromNow={setEvalDaysFromNow}
                     maxDaysToExpiration={maxDaysToExpiration}
+                    managementDte={management.managementDte}
                   />
+                  {symbol.trim() !== '' && useTheoreticalPricing && (
+                    <IvScenarioControl ivShiftPct={ivShiftPct} setIvShiftPct={setIvShiftPct} previewStore={ivPreviewStore} />
+                  )}
                 </div>
               )}
 
@@ -599,7 +637,7 @@ function App() {
                       chartData={chartData}
                       portfolioGreeks={portfolioGreeks}
                       marketData={marketData}
-                      zoomRange={deferredZoomRange}
+                      zoomStore={zoomStore}
                     />
                   </Suspense>
                 </div>

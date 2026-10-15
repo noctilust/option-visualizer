@@ -13,6 +13,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from market_data import calculate_days_to_expiration, MarketDataFetcher
 from tastytrade_client import get_tastytrade_client
+import seller_metrics
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -605,7 +606,9 @@ def calculate_pl(
     range_percent: float = 0.5,
     skip_greeks_curve: bool = False,
     eval_days_from_now: Optional[int] = None,
-    precompute_dates: bool = False
+    precompute_dates: bool = False,
+    iv_shift: float = 0.0,
+    profit_target_pct: float = 50.0
 ) -> dict:
     """
     Calculate P/L with Black-Scholes pricing and Greeks
@@ -621,6 +624,8 @@ def calculate_pl(
         eval_days_from_now: Days from now to evaluate P/L at (0 = today, None = at expiration for 'pl' field)
                            When set, calculates theoretical P/L as if we're that many days in the future
         precompute_dates: Pre-compute P/L curves for multiple dates (speeds up date slider)
+        iv_shift: Relative IV change applied to pre-expiration P/L curves (-0.3 = IV x 0.7)
+        profit_target_pct: Profit target (% of max profit) used for the touch-probability estimate
 
     Returns:
         Dict with keys:
@@ -752,11 +757,16 @@ def calculate_pl(
                 position_ivs[p['index']] = default_iv
                 logger.info(f"Position {p['index']}: Using default ATM IV={default_iv:.2%}")
 
+    # Scenario IVs for the pre-expiration curves; Greeks stay at market IV
+    curve_ivs: Dict[int, float] = {
+        idx: max(0.01, position_ivs.get(idx, default_iv) * (1 + iv_shift))
+        for idx in range(len(positions))
+    }
+
     # Calculate Greeks for each position at current stock price
-    # Skip if skip_greeks_curve is True for faster P/L-only calculation
     positions_with_greeks = []
 
-    if can_calculate_bs and not skip_greeks_curve:
+    if can_calculate_bs:
         current_stock_price = market_data['current_price']
         risk_free_rate = market_data['risk_free_rate']
         default_dividend_yield = market_data.get('dividend_yield', 0.0)
@@ -858,7 +868,7 @@ def calculate_pl(
             option_type = pos['type']
 
             dte = calculate_days_to_expiration(pos['expiration'], current_date)
-            iv = position_ivs.get(idx, default_iv)  # Use pre-computed per-strike IV
+            iv = curve_ivs[idx]
             dividend_yield = pos.get('dividend_yield') or default_dividend_yield
             option_style = get_option_style(pos.get('style'), underlying_symbol)
 
@@ -902,7 +912,7 @@ def calculate_pl(
             # Adjusted DTE (as if we're in the future)
             adjusted_dte = max(0, original_dte - days_from_now)
 
-            iv = position_ivs.get(idx, default_iv)  # Use pre-computed per-strike IV
+            iv = curve_ivs[idx]
             dividend_yield = pos.get('dividend_yield') or default_dividend_yield
             option_style = get_option_style(pos.get('style'), underlying_symbol)
 
@@ -1062,12 +1072,168 @@ def calculate_pl(
                 pl_values.append(round(pl, 2))
             precomputed_dates[days] = pl_values
 
+    probability_metrics, seller_summary = _build_seller_metrics(
+        positions=positions,
+        credit=credit,
+        market_data=market_data if can_calculate_bs else None,
+        current_date=current_date,
+        position_ivs=[position_ivs.get(idx, default_iv) for idx in range(len(positions))],
+        position_quotes=[position_greeks_from_api.get(idx) for idx in range(len(positions))],
+        portfolio_greeks=portfolio_greeks,
+        profit_target_pct=profit_target_pct,
+    )
+
+    # Unshifted per-leg inputs so the client can reprice the date curves while
+    # the IV slider moves, before the exact recalculation arrives
+    scenario_legs = None
+    if can_calculate_bs:
+        default_dividend_yield = market_data.get('dividend_yield', 0.0)
+        scenario_legs = [
+            {
+                'iv': position_ivs.get(idx, default_iv),
+                'dte': calculate_days_to_expiration(pos['expiration'], current_date),
+                'dividend_yield': pos.get('dividend_yield') or default_dividend_yield,
+            }
+            for idx, pos in enumerate(positions)
+        ]
+
     return {
         'data': data_points,
         'positions_with_greeks': positions_with_greeks if can_calculate_bs else None,
         'portfolio_greeks': portfolio_greeks,
         'market_data': market_data,
+        'probability_metrics': probability_metrics,
+        'seller_metrics': seller_summary,
         'eval_days_from_now': eval_days_from_now,
         'max_days_to_expiration': max_dte,
-        'precomputed_dates': precomputed_dates
+        'precomputed_dates': precomputed_dates,
+        'iv_shift': iv_shift,
+        'scenario_legs': scenario_legs,
     }
+
+
+def _position_dtes(positions: List[dict], current_date: date) -> List[Optional[int]]:
+    dtes: List[Optional[int]] = []
+    for pos in positions:
+        try:
+            dtes.append(calculate_days_to_expiration(pos.get('expiration', ''), current_date))
+        except ValueError:
+            dtes.append(None)
+    return dtes
+
+
+def _build_seller_metrics(
+    positions: List[dict],
+    credit: float,
+    market_data: Optional[dict],
+    current_date: date,
+    position_ivs: List[float],
+    position_quotes: List[Optional[dict]],
+    portfolio_greeks: Optional[Dict[str, float]],
+    profit_target_pct: float,
+) -> tuple:
+    """Probability metrics and premium-seller summary for the response."""
+    extremes = seller_metrics.max_profit_and_loss(positions, credit)
+    max_profit, max_loss = extremes['max_profit'], extremes['max_loss']
+    breakevens = seller_metrics.breakeven_points(positions, credit)
+
+    risk_reward = None
+    if max_profit is not None and max_loss is not None and max_loss < 0:
+        risk_reward = round(max_profit / abs(max_loss), 4)
+
+    dtes = _position_dtes(positions, current_date)
+    known_dtes = [d for d in dtes if d is not None]
+    nearest_dte = min(known_dtes) if known_dtes else None
+
+    probability = {
+        'probability_of_profit': None,
+        'max_profit': round(max_profit, 2) if max_profit is not None else None,
+        'max_loss': round(max_loss, 2) if max_loss is not None else None,
+        'breakeven_points': breakevens,
+        'risk_reward_ratio': risk_reward,
+        'probability_of_profit_target': None,
+        'profit_target_pct': profit_target_pct,
+        'short_strikes': [],
+    }
+    summary = {
+        'buying_power': None,
+        'buying_power_method': None,
+        'return_on_capital': None,
+        'annualized_return': None,
+        'theta_per_day': None,
+        'theta_to_buying_power': None,
+        'expected_move': None,
+        'market_credit': seller_metrics.market_credit_from_quotes(positions, position_quotes),
+        'days_to_expiration': nearest_dte,
+        'earnings_date': None,
+        'earnings_before_expiration': False,
+    }
+
+    spot = market_data['current_price'] if market_data else None
+    option_values: List[Optional[float]] = [None] * len(positions)
+    if market_data:
+        atm_iv = market_data['implied_volatility']
+        r = market_data.get('risk_free_rate', 0.0)
+        q = market_data.get('dividend_yield', 0.0) or 0.0
+        underlying = market_data.get('symbol')
+
+        if nearest_dte is not None and nearest_dte > 0:
+            years = nearest_dte / 365.0
+            pop = seller_metrics.probability_of_profit(positions, credit, spot, atm_iv, years, r, q)
+            probability['probability_of_profit'] = round(pop * 100, 2)
+            probability['short_strikes'] = seller_metrics.short_strike_risk(
+                positions, spot, atm_iv, years, r, q, position_ivs=position_ivs
+            )
+            summary['expected_move'] = seller_metrics.expected_move(spot, atm_iv, nearest_dte)
+
+            if credit > 0 and max_profit is not None and max_profit > 0 and len(known_dtes) == len(positions):
+                target = seller_metrics.probability_of_profit_target(
+                    positions,
+                    credit,
+                    target_pl=max_profit * profit_target_pct / 100.0,
+                    spot=spot,
+                    path_volatility=atm_iv,
+                    position_ivs=position_ivs,
+                    position_dtes=known_dtes,
+                    risk_free_rate=r,
+                    dividend_yield=q,
+                )
+                if target is not None:
+                    probability['probability_of_profit_target'] = round(target * 100, 2)
+
+        for idx, (pos, iv, dte) in enumerate(zip(positions, position_ivs, dtes)):
+            if dte is not None:
+                option_values[idx] = calculate_black_scholes_price(
+                    pos['type'], spot, pos['strike'], dte, r, iv,
+                    pos.get('dividend_yield') or q,
+                    get_option_style(pos.get('style'), underlying),
+                )
+
+        earnings = market_data.get('earnings_date')
+        if earnings:
+            summary['earnings_date'] = earnings
+            max_known_dte = max(known_dtes) if known_dtes else None
+            if max_known_dte is not None:
+                try:
+                    days_to_earnings = (date.fromisoformat(earnings) - current_date).days
+                    summary['earnings_before_expiration'] = 0 <= days_to_earnings <= max_known_dte
+                except ValueError:
+                    pass
+
+    bp = seller_metrics.estimate_buying_power(positions, credit, spot, option_values, max_loss)
+    if bp and bp['amount'] > 0:
+        summary['buying_power'] = bp['amount']
+        summary['buying_power_method'] = bp['method']
+        if max_profit is not None:
+            roc = max_profit / bp['amount']
+            summary['return_on_capital'] = round(roc, 4)
+            if nearest_dte:
+                summary['annualized_return'] = round(roc * 365 / nearest_dte, 4)
+
+    if portfolio_greeks is not None:
+        theta_dollars = portfolio_greeks['theta'] * seller_metrics.SHARES_PER_CONTRACT
+        summary['theta_per_day'] = round(theta_dollars, 2)
+        if summary['buying_power']:
+            summary['theta_to_buying_power'] = round(theta_dollars / summary['buying_power'], 5)
+
+    return probability, summary

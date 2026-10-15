@@ -86,6 +86,36 @@ const termDefinitions: Record<string, { title: string; description: string; exam
     description: 'The difference in implied volatility between out-of-the-money puts and calls. Positive skew means puts are more expensive.',
     example: 'Skew of +5% means put IV is 5% higher than call IV at equal deltas.',
   },
+  'pop': {
+    title: 'Probability of Profit (POP)',
+    description: 'Chance the position finishes above $0 at the nearest expiration, from a lognormal model using current IV. The second line estimates the chance of reaching your profit target at any point before expiration (Monte Carlo).',
+  },
+  'buying-power': {
+    title: 'Buying Power Reduction',
+    description: 'Estimated capital your broker sets aside. Defined-risk trades use max loss; naked short options use the Reg-T formula: the greater of 20% of the underlying minus the OTM amount plus premium, or 10% of the strike (puts) / underlying (calls) plus premium. Your broker may differ.',
+  },
+  'roc': {
+    title: 'Return on Capital',
+    description: 'Max profit divided by buying power. Annualized assumes the same return can be repeated every cycle until the nearest expiration.',
+    example: '$150 max profit on $350 buying power over 30 days = 43% ROC, about 521% annualized.',
+  },
+  'expected-move': {
+    title: 'Expected Move (1σ)',
+    description: 'Price range the market implies with roughly 68% probability by the nearest expiration: price × IV × √(days / 365). Shaded on the chart.',
+  },
+  'probability-of-touch': {
+    title: 'Probability ITM / Touch',
+    description: 'Chance each short strike finishes in the money at expiration (using that strike\'s own IV, so skew counts), and the approximate chance price touches it before then (about twice the ITM probability).',
+  },
+  'iv-hv': {
+    title: 'IV vs Historical Volatility',
+    description: 'Implied volatility minus 20-day realized (historical) volatility. Premium sellers earn this difference over time, so a positive spread favors selling.',
+  },
+  'iv-shift': {
+    title: 'IV Scenario',
+    description: 'Shifts every leg\'s implied volatility by a percentage to preview an IV crush or expansion. Applies to the P/L curves before expiration; the expiration payoff is unaffected.',
+    example: '-30% turns a 40% IV into 28%, as often happens right after earnings.',
+  },
 };
 
 export default function HelpTooltip({ term, children, className = '' }: HelpTooltipProps) {

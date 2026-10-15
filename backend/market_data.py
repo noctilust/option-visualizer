@@ -27,6 +27,14 @@ from shared_cache import (
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+INDEX_SYMBOLS = {'SPX', 'NDX', 'RUT', 'VIX', 'DJX', 'XSP', 'XND'}
+CORPORATE_EVENTS_TTL_SECONDS = 12 * 60 * 60
+
+
+def to_yahoo_symbol(symbol: str) -> str:
+    normalized = symbol.strip().upper()
+    return f"^{normalized}" if normalized in INDEX_SYMBOLS else normalized
+
 
 class MarketDataFetcher:
     """Fetches and caches market data from various sources"""
@@ -299,7 +307,7 @@ class MarketDataFetcher:
             self._shared_cache.record_provider_fetch(
                 "historical_volatility"
             )
-            ticker = yf.Ticker(normalized_symbol)
+            ticker = yf.Ticker(to_yahoo_symbol(normalized_symbol))
 
             # Fetch historical data
             hist = ticker.history(period=f"{days + 5}d")  # Extra days for safety
@@ -431,6 +439,86 @@ class MarketDataFetcher:
         except Exception as e:
             logger.error(f"Error calculating IV rank for {symbol}: {e}")
             return None
+
+    def get_iv_percentile(self, symbol: str) -> Optional[float]:
+        """IV Percentile (0-100) from Tastytrade market metrics, if available."""
+        if not self._tastytrade.is_enabled:
+            return None
+        metrics = self._tastytrade.get_market_metrics(symbol.strip().upper())
+        if metrics and metrics.get('iv_percentile') is not None:
+            return float(metrics['iv_percentile'])
+        return None
+
+    def get_dividend_yield(self, symbol: str) -> float:
+        """
+        Trailing 12-month dividend yield (as decimal).
+
+        Index options settle on the index level, which pays no dividends, so
+        index symbols return 0.
+        """
+        normalized_symbol = symbol.strip().upper()
+        if normalized_symbol in INDEX_SYMBOLS:
+            return 0.0
+
+        cache_key = f"dividend_{normalized_symbol}"
+        cached = self._get_from_cache(cache_key, CORPORATE_EVENTS_TTL_SECONDS)
+        if cached is not None:
+            return cached
+
+        dividend_yield = 0.0
+        try:
+            dividends = yf.Ticker(normalized_symbol).dividends
+            if dividends is not None and not dividends.empty:
+                cutoff = datetime.now(timezone.utc) - timedelta(days=365)
+                index = dividends.index
+                if index.tz is None:
+                    index = index.tz_localize(timezone.utc)
+                trailing = float(dividends[index >= cutoff].sum())
+                if trailing > 0:
+                    price = self.get_stock_price(normalized_symbol)
+                    dividend_yield = trailing / price
+        except Exception as e:
+            logger.warning(f"Could not fetch dividends for {symbol}: {e}")
+            return 0.0
+
+        # Guard against bad data (special dividends, splits)
+        dividend_yield = dividend_yield if 0 <= dividend_yield < 0.25 else 0.0
+        self._set_cache(cache_key, dividend_yield)
+        return dividend_yield
+
+    def get_next_earnings_date(self, symbol: str) -> Optional[str]:
+        """Next earnings date (YYYY-MM-DD) from Yahoo Finance, or None."""
+        normalized_symbol = symbol.strip().upper()
+        if normalized_symbol in INDEX_SYMBOLS:
+            return None
+
+        cache_key = f"earnings_{normalized_symbol}"
+        cached = self._get_from_cache(cache_key, CORPORATE_EVENTS_TTL_SECONDS)
+        if cached is not None:
+            return cached or None
+
+        earnings: Optional[str] = None
+        try:
+            calendar = yf.Ticker(normalized_symbol).calendar
+            raw_dates = calendar.get('Earnings Date') if isinstance(calendar, dict) else None
+            if raw_dates:
+                if not isinstance(raw_dates, (list, tuple)):
+                    raw_dates = [raw_dates]
+                today = date.today()
+                upcoming = sorted(
+                    d.date() if isinstance(d, datetime) else d
+                    for d in raw_dates
+                    if isinstance(d, (date, datetime))
+                )
+                upcoming = [d for d in upcoming if d >= today]
+                if upcoming:
+                    earnings = upcoming[0].isoformat()
+        except Exception as e:
+            logger.warning(f"Could not fetch earnings date for {symbol}: {e}")
+            return None
+
+        self._set_cache(cache_key, earnings or '')
+        return earnings
 
     def get_risk_free_rate(self) -> float:
         """

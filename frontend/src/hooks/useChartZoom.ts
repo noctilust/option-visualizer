@@ -1,15 +1,25 @@
-import { useState, useRef, useCallback, useEffect, useMemo, useDeferredValue, type RefObject } from 'react';
+import { useState, useRef, useCallback, useEffect, type RefObject } from 'react';
 import type { ZoomRange, ChartDataPoint, Position } from '../types';
+import { createStore, useStore, type Store } from '../utils/store';
+import { defaultPriceWindow, findBreakevenPrices } from '../components/plChartData';
+
+/** Zoom window kept outside React state so panning only re-renders the charts */
+export type ZoomStore = Store<ZoomRange>;
+
+export function createZoomStore(initial: ZoomRange = { startIndex: 0, endIndex: 0 }): ZoomStore {
+  return createStore(initial, (a, b) => a.startIndex === b.startIndex && a.endIndex === b.endIndex);
+}
+
+export const useZoomRange: (store: ZoomStore) => ZoomRange = useStore;
 
 interface UseChartZoomProps {
   chartData: ChartDataPoint[];
   positions: Position[];
+  currentPrice?: number;
 }
 
 interface UseChartZoomReturn {
-  zoomRange: ZoomRange;
-  deferredZoomRange: ZoomRange; // Deferred version for smoother rendering
-  setZoomRange: React.Dispatch<React.SetStateAction<ZoomRange>>;
+  zoomStore: ZoomStore;
   chartContainerRef: RefObject<HTMLDivElement | null>;
   handleZoomIn: () => void;
   handleZoomOut: () => void;
@@ -18,124 +28,73 @@ interface UseChartZoomReturn {
   handleChartMouseMove: (e: React.MouseEvent) => void;
   handleChartMouseUp: () => void;
   handleChartMouseLeave: () => void;
-  xAxisTicks: number[];
 }
 
-export function useChartZoom({ chartData, positions }: UseChartZoomProps): UseChartZoomReturn {
-  const [zoomRange, setZoomRange] = useState<ZoomRange>({ startIndex: 0, endIndex: 0 });
+function defaultZoomRange(
+  chartData: ChartDataPoint[],
+  positions: Position[],
+  breakevenPrices: number[],
+  currentPrice: number | undefined,
+): ZoomRange {
+  const fullRange = { startIndex: 0, endIndex: chartData.length - 1 };
+  const window = defaultPriceWindow([
+    ...breakevenPrices,
+    ...positions.map(p => p.strike),
+    ...(currentPrice ? [currentPrice] : []),
+  ]);
+  if (!window) return fullRange;
 
-  // Deferred zoom range for smoother rendering during rapid updates (dragging/zooming)
-  const deferredZoomRange = useDeferredValue(zoomRange);
+  // Widen to the nearest data points outside the window
+  let startIndex = 0;
+  for (let i = 0; i < chartData.length && chartData[i].price <= window.low; i++) startIndex = i;
+  let endIndex = chartData.findIndex(d => d.price >= window.high);
+  if (endIndex === -1) endIndex = chartData.length - 1;
+  return endIndex > startIndex ? { startIndex, endIndex } : fullRange;
+}
+
+export function useChartZoom({ chartData, positions, currentPrice }: UseChartZoomProps): UseChartZoomReturn {
+  const [zoomStore] = useState(() => createZoomStore());
+
+  // Spot frames the default window but quote updates shouldn't reset the zoom
+  const currentPriceRef = useRef(currentPrice);
+  useEffect(() => {
+    currentPriceRef.current = currentPrice;
+  }, [currentPrice]);
 
   // Drag-to-pan state
   const chartContainerRef = useRef<HTMLDivElement | null>(null);
   const isDraggingRef = useRef(false);
   const dragStartXRef = useRef(0);
   const dragStartRangeRef = useRef<ZoomRange>({ startIndex: 0, endIndex: 0 });
+  const pendingRangeRef = useRef<ZoomRange | null>(null);
+  const frameRef = useRef<number | null>(null);
 
   // Track positions fingerprint to only reset zoom when strategy fundamentally changes
   const positionsFingerprintRef = useRef<string>('');
   const hasInitializedRef = useRef(false);
 
-  // Reset zoom when chart data changes, with smart default based on breakeven points
   useEffect(() => {
     if (chartData.length === 0 || positions.length === 0) return;
 
-    // Find breakeven points from chart data (where P/L crosses zero)
-    const breakevenPrices: number[] = [];
-    for (let i = 0; i < chartData.length - 1; i++) {
-      const p1 = chartData[i];
-      const p2 = chartData[i + 1];
-      if ((p1.pl >= 0 && p2.pl < 0) || (p1.pl < 0 && p2.pl >= 0)) {
-        const bePrice = p1.price + (p2.price - p1.price) * ((0 - p1.pl) / (p2.pl - p1.pl));
-        breakevenPrices.push(Math.round(bePrice * 100) / 100); // Round to 2 decimals
-      }
-    }
-
-    // Generate fingerprint including breakeven points (changes when credit changes)
+    const breakevenPrices = findBreakevenPrices(chartData);
+    // Breakevens move with the credit, so they're part of the fingerprint
     const positionsKey = positions.map(p => `${p.strike}-${p.type}-${p.qty}`).sort().join('|');
-    const breakevenKey = breakevenPrices.sort((a, b) => a - b).join(',');
+    const breakevenKey = breakevenPrices.map(p => Math.round(p * 100) / 100).sort((a, b) => a - b).join(',');
     const newFingerprint = `${positionsKey}::${breakevenKey}`;
 
-    const shouldRecalculate = !hasInitializedRef.current || newFingerprint !== positionsFingerprintRef.current;
-
-    if (shouldRecalculate) {
+    if (!hasInitializedRef.current || newFingerprint !== positionsFingerprintRef.current) {
       positionsFingerprintRef.current = newFingerprint;
       hasInitializedRef.current = true;
-
-      let lowerBound: number;
-      let upperBound: number;
-
-      if (breakevenPrices.length >= 2) {
-        // Profit zone takes ~70% of chart (21.5% padding each side)
-        const minBE = Math.min(...breakevenPrices);
-        const maxBE = Math.max(...breakevenPrices);
-        const beSpread = maxBE - minBE;
-        const padding = beSpread * 0.215;
-        lowerBound = minBE - padding;
-        upperBound = maxBE + padding;
-      } else {
-        // Fallback to strike-based calculation
-        const strikes = positions.map(p => p.strike);
-        const minStrike = Math.min(...strikes);
-        const maxStrike = Math.max(...strikes);
-        const strikeSpread = maxStrike - minStrike;
-        const centerPrice = (minStrike + maxStrike) / 2;
-        const effectiveSpread = strikeSpread > 0 ? strikeSpread : minStrike * 0.15;
-        const viewRadius = effectiveSpread * 0.7;
-        lowerBound = centerPrice - viewRadius;
-        upperBound = centerPrice + viewRadius;
-      }
-
-      const startIndex = chartData.findIndex(d => d.price >= lowerBound);
-      const endIndex = chartData.findIndex(d => d.price >= upperBound);
-
-      setZoomRange({
-        startIndex: startIndex !== -1 ? startIndex : 0,
-        endIndex: endIndex !== -1 ? endIndex : chartData.length - 1
-      });
+      zoomStore.set(defaultZoomRange(chartData, positions, breakevenPrices, currentPriceRef.current));
     }
-  }, [chartData, positions]);
+  }, [chartData, positions, zoomStore]);
 
-  const xAxisTicks = useMemo(() => {
-    if (!chartData.length) return [];
-
-    const start = zoomRange.startIndex;
-    const end = zoomRange.endIndex || chartData.length - 1;
-    const visibleData = chartData.slice(start, end + 1);
-
-    if (!visibleData.length) return [];
-
-    const prices = visibleData.map(d => d.price);
-    const minPrice = Math.min(...prices);
-    const maxPrice = Math.max(...prices);
-
-    const range = maxPrice - minPrice;
-    if (range === 0) return [minPrice];
-
-    // Target roughly 8 ticks
-    const rawInterval = range / 8;
-    const magnitude = Math.pow(10, Math.floor(Math.log10(rawInterval)));
-    const normalized = rawInterval / magnitude;
-
-    let interval: number;
-    if (normalized < 1.5) interval = 1 * magnitude;
-    else if (normalized < 3.5) interval = 2 * magnitude;
-    else if (normalized < 7.5) interval = 5 * magnitude;
-    else interval = 10 * magnitude;
-
-    const startTick = Math.floor(minPrice / interval) * interval;
-    const endTick = Math.ceil(maxPrice / interval) * interval;
-
-    const ticks: number[] = [];
-    for (let p = startTick; p <= endTick; p += interval) {
-      ticks.push(p);
-    }
-    return ticks;
-  }, [chartData, zoomRange]);
+  useEffect(() => () => {
+    if (frameRef.current !== null) cancelAnimationFrame(frameRef.current);
+  }, []);
 
   const handleZoomIn = useCallback(() => {
-    setZoomRange(current => {
+    zoomStore.set(current => {
       const range = current.endIndex - current.startIndex;
       if (range <= 2) return current; // Prevent zooming in too much
 
@@ -145,89 +104,47 @@ export function useChartZoom({ chartData, positions }: UseChartZoomProps): UseCh
 
       return { startIndex: newStart, endIndex: newEnd };
     });
-  }, []);
+  }, [zoomStore]);
 
   const handleZoomOut = useCallback(() => {
-    setZoomRange(current => {
+    zoomStore.set(current => {
       const totalPoints = chartData.length;
       const range = current.endIndex - current.startIndex;
 
-      // If already fully zoomed out, do nothing
       if (current.startIndex === 0 && current.endIndex === totalPoints - 1) return current;
 
       const zoomFactor = Math.floor(range * 0.1) || 1;
-      const newStart = Math.max(0, current.startIndex - zoomFactor);
-      const newEnd = Math.min(totalPoints - 1, current.endIndex + zoomFactor);
-
-      return { startIndex: newStart, endIndex: newEnd };
+      return {
+        startIndex: Math.max(0, current.startIndex - zoomFactor),
+        endIndex: Math.min(totalPoints - 1, current.endIndex + zoomFactor),
+      };
     });
-  }, [chartData.length]);
+  }, [chartData.length, zoomStore]);
 
   const handleResetZoom = useCallback(() => {
     if (chartData.length > 0 && positions.length > 0) {
-      // Find breakeven points from chart data (where P/L crosses zero)
-      const breakevenPrices: number[] = [];
-      for (let i = 0; i < chartData.length - 1; i++) {
-        const p1 = chartData[i];
-        const p2 = chartData[i + 1];
-        if ((p1.pl >= 0 && p2.pl < 0) || (p1.pl < 0 && p2.pl >= 0)) {
-          const bePrice = p1.price + (p2.price - p1.price) * ((0 - p1.pl) / (p2.pl - p1.pl));
-          breakevenPrices.push(bePrice);
-        }
-      }
-
-      let lowerBound: number;
-      let upperBound: number;
-
-      if (breakevenPrices.length >= 2) {
-        // Profit zone takes ~70% of chart (21.5% padding each side)
-        const minBE = Math.min(...breakevenPrices);
-        const maxBE = Math.max(...breakevenPrices);
-        const beSpread = maxBE - minBE;
-        const padding = beSpread * 0.215;
-        lowerBound = minBE - padding;
-        upperBound = maxBE + padding;
-      } else {
-        // Fallback to strike-based calculation
-        const strikes = positions.map(p => p.strike);
-        const minStrike = Math.min(...strikes);
-        const maxStrike = Math.max(...strikes);
-        const strikeSpread = maxStrike - minStrike;
-        const centerPrice = (minStrike + maxStrike) / 2;
-        const effectiveSpread = strikeSpread > 0 ? strikeSpread : minStrike * 0.15;
-        const viewRadius = effectiveSpread * 0.7;
-        lowerBound = centerPrice - viewRadius;
-        upperBound = centerPrice + viewRadius;
-      }
-
-      const startIdx = chartData.findIndex(d => d.price >= lowerBound);
-      const endIdx = chartData.findIndex(d => d.price >= upperBound);
-
-      setZoomRange({
-        startIndex: startIdx !== -1 ? startIdx : 0,
-        endIndex: endIdx !== -1 ? endIdx : chartData.length - 1
-      });
+      zoomStore.set(defaultZoomRange(chartData, positions, findBreakevenPrices(chartData), currentPriceRef.current));
     } else if (chartData.length > 0) {
-      setZoomRange({ startIndex: 0, endIndex: chartData.length - 1 });
+      zoomStore.set({ startIndex: 0, endIndex: chartData.length - 1 });
     }
-  }, [chartData, positions]);
+  }, [chartData, positions, zoomStore]);
 
-  // Drag-to-pan handlers
+  const setDragging = useCallback((dragging: boolean) => {
+    isDraggingRef.current = dragging;
+    const container = chartContainerRef.current;
+    if (!container) return;
+    container.style.cursor = dragging ? 'grabbing' : 'grab';
+    // Lets the chart skip tooltip hit-testing while panning
+    if (dragging) container.dataset.dragging = 'true';
+    else delete container.dataset.dragging;
+  }, []);
+
   const handleChartMouseDown = useCallback((e: React.MouseEvent) => {
     e.preventDefault(); // Prevent native drag/selection behavior
-    isDraggingRef.current = true;
     dragStartXRef.current = e.clientX;
-    // Use functional update to get current zoom range
-    setZoomRange(currentRange => {
-      dragStartRangeRef.current = { ...currentRange };
-      return currentRange;
-    });
-
-    // Change cursor to grabbing
-    if (chartContainerRef.current) {
-      chartContainerRef.current.style.cursor = 'grabbing';
-    }
-  }, []);
+    dragStartRangeRef.current = zoomStore.get();
+    setDragging(true);
+  }, [setDragging, zoomStore]);
 
   const handleChartMouseMove = useCallback((e: React.MouseEvent) => {
     if (!isDraggingRef.current) return;
@@ -236,63 +153,40 @@ export function useChartZoom({ chartData, positions }: UseChartZoomProps): UseCh
     if (!rect) return;
 
     const deltaX = e.clientX - dragStartXRef.current;
-    const chartWidth = rect.width;
-
-    // Calculate how many data points to shift based on drag distance
     const { startIndex: startIdx, endIndex: endIdx } = dragStartRangeRef.current;
-    const visibleRange = endIdx - startIdx;
+    const pixelsPerPoint = rect.width / (endIdx - startIdx);
 
-    // Pixels per data point
-    const pixelsPerPoint = chartWidth / visibleRange;
-
-    // Calculate shift amount (negative because dragging left should show higher prices)
+    // Dragging left reveals higher prices
     const shift = Math.round(-deltaX / pixelsPerPoint);
+    const totalPoints = chartData.length;
+    let newStart = startIdx + shift;
+    let newEnd = endIdx + shift;
 
-    setZoomRange(currentRange => {
-      const totalPoints = chartData.length;
-      let newStart = startIdx + shift;
-      let newEnd = endIdx + shift;
-
-      // Clamp to valid range
-      if (newStart < 0) {
-        newEnd = newEnd - newStart;
-        newStart = 0;
-      }
-      if (newEnd > totalPoints - 1) {
-        newStart = newStart - (newEnd - (totalPoints - 1));
-        newEnd = totalPoints - 1;
-      }
-
-      // Ensure we don't go out of bounds
-      newStart = Math.max(0, newStart);
-      newEnd = Math.min(totalPoints - 1, newEnd);
-
-      // Only update if changed
-      if (newStart !== currentRange.startIndex || newEnd !== currentRange.endIndex) {
-        return { startIndex: newStart, endIndex: newEnd };
-      }
-      return currentRange;
-    });
-  }, [chartData.length]);
-
-  const handleChartMouseUp = useCallback(() => {
-    isDraggingRef.current = false;
-    if (chartContainerRef.current) {
-      chartContainerRef.current.style.cursor = 'grab';
+    if (newStart < 0) {
+      newEnd = newEnd - newStart;
+      newStart = 0;
     }
-  }, []);
-
-  const handleChartMouseLeave = useCallback(() => {
-    isDraggingRef.current = false;
-    if (chartContainerRef.current) {
-      chartContainerRef.current.style.cursor = 'grab';
+    if (newEnd > totalPoints - 1) {
+      newStart = newStart - (newEnd - (totalPoints - 1));
+      newEnd = totalPoints - 1;
     }
-  }, []);
+
+    // Mouse events can fire several times per frame; render at most once per frame
+    pendingRangeRef.current = { startIndex: Math.max(0, newStart), endIndex: Math.min(totalPoints - 1, newEnd) };
+    if (frameRef.current === null) {
+      frameRef.current = requestAnimationFrame(() => {
+        frameRef.current = null;
+        if (pendingRangeRef.current) zoomStore.set(pendingRangeRef.current);
+        pendingRangeRef.current = null;
+      });
+    }
+  }, [chartData.length, zoomStore]);
+
+  const handleChartMouseUp = useCallback(() => setDragging(false), [setDragging]);
+  const handleChartMouseLeave = useCallback(() => setDragging(false), [setDragging]);
 
   return {
-    zoomRange,
-    deferredZoomRange,
-    setZoomRange,
+    zoomStore,
     chartContainerRef,
     handleZoomIn,
     handleZoomOut,
@@ -301,6 +195,5 @@ export function useChartZoom({ chartData, positions }: UseChartZoomProps): UseCh
     handleChartMouseMove,
     handleChartMouseUp,
     handleChartMouseLeave,
-    xAxisTicks,
   };
 }

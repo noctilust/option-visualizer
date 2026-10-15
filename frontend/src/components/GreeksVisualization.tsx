@@ -1,13 +1,14 @@
-import { useState, useMemo, Fragment } from 'react';
+import { useState, useMemo, useDeferredValue, memo, Fragment } from 'react';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, ReferenceLine, ReferenceDot } from 'recharts';
 import { TrendingUp, Activity } from 'lucide-react';
-import type { ChartDataPoint, PortfolioGreeks, MarketData, ZoomRange } from '../types';
+import type { ChartDataPoint, PortfolioGreeks, MarketData } from '../types';
+import { useZoomRange, type ZoomStore } from '../hooks/useChartZoom';
 
 interface GreeksVisualizationProps {
   chartData: ChartDataPoint[];
   portfolioGreeks: PortfolioGreeks | null;
   marketData: MarketData | null;
-  zoomRange: ZoomRange;
+  zoomStore: ZoomStore;
 }
 
 interface GreekConfig {
@@ -51,11 +52,173 @@ const greekConfig: Record<keyof SelectedGreeks, GreekConfig> = {
   }
 };
 
+interface GreeksLineChartProps {
+  data: ChartDataPoint[];
+  selectedGreeks: SelectedGreeks;
+  currentPrice: number | undefined;
+}
+
+// Memoized so the deferred zoom pass only redraws when the visible data changes
+const GreeksLineChart = memo(function GreeksLineChart({ data: visibleChartData, selectedGreeks, currentPrice }: GreeksLineChartProps) {
+  return (
+    <div className="bg-card border rounded-lg p-4">
+      <ResponsiveContainer width="100%" height={400}>
+        <LineChart
+          data={visibleChartData}
+          margin={{ top: 10, right: 10, left: 10, bottom: 20 }}
+        >
+          <CartesianGrid strokeDasharray="3 3" stroke="#8a8a8a" opacity={0.2} />
+          <XAxis
+            dataKey="price"
+            type="number"
+            domain={['dataMin', 'dataMax']}
+            tickFormatter={(value) => `$${Math.round(value)}`}
+            tick={{ fontSize: 10, fill: '#8a8a8a' }}
+            axisLine={{ stroke: '#8a8a8a', opacity: 0.4 }}
+            tickLine={{ stroke: '#8a8a8a', opacity: 0.4 }}
+          />
+          <YAxis
+            tick={{ fontSize: 10, fill: '#8a8a8a' }}
+            axisLine={{ stroke: '#8a8a8a', opacity: 0.4 }}
+            tickLine={{ stroke: '#8a8a8a', opacity: 0.4 }}
+            width={40}
+          />
+          <Tooltip
+            cursor={{ stroke: '#8a8a8a', strokeWidth: 1, strokeDasharray: '4 4' }}
+            isAnimationActive={false}
+            content={({ active, payload, label }) => {
+              if (active && payload && payload.length) {
+                return (
+                  <div className="bg-popover border border-border text-popover-foreground rounded-lg p-3 shadow-lg">
+                    <div className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1 text-sm">
+                      <span className="text-muted-foreground">Price:</span>
+                      <span className="text-right font-medium">
+                        ${Number.isInteger(label) ? label : (label as number).toFixed(2)}
+                      </span>
+                      {payload.map((entry, index) => (
+                        <Fragment key={index}>
+                          <span className="text-muted-foreground">{entry.name}:</span>
+                          <span
+                            className="text-right font-medium"
+                            style={{ color: entry.color }}
+                          >
+                            {entry.value !== null && entry.value !== undefined
+                              ? (entry.value as number).toFixed(4)
+                              : 'N/A'}
+                          </span>
+                        </Fragment>
+                      ))}
+                    </div>
+                  </div>
+                );
+              }
+              return null;
+            }}
+          />
+
+          {/* Current price dotted vertical line */}
+          {currentPrice && (
+            <>
+              <ReferenceLine
+                x={currentPrice}
+                stroke="#3b82f6"
+                strokeWidth={1}
+                strokeDasharray="4 2"
+                label={{
+                  value: `$${currentPrice.toFixed(2)}`,
+                  position: 'insideBottomLeft',
+                  fill: '#3b82f6',
+                  fontSize: 11,
+                  fontWeight: 600,
+                  dy: -5
+                }}
+              />
+              {/* Accent dot on x-axis */}
+              <ReferenceDot
+                x={currentPrice}
+                y={0}
+                r={3}
+                fill="#3b82f6"
+                stroke="#fff"
+                strokeWidth={2}
+              />
+            </>
+          )}
+
+          {/* Render selected Greeks */}
+          {selectedGreeks.delta && (
+            <Line
+              type="monotone"
+              dataKey="delta"
+              stroke={greekConfig.delta.color}
+              strokeWidth={2}
+              dot={false}
+              name="Delta"
+              connectNulls={true}
+              isAnimationActive={false}
+            />
+          )}
+          {selectedGreeks.gamma && (
+            <Line
+              type="monotone"
+              dataKey="gamma"
+              stroke={greekConfig.gamma.color}
+              strokeWidth={2}
+              dot={false}
+              name="Gamma"
+              connectNulls={true}
+              isAnimationActive={false}
+            />
+          )}
+          {selectedGreeks.theta && (
+            <Line
+              type="monotone"
+              dataKey="theta"
+              stroke={greekConfig.theta.color}
+              strokeWidth={2}
+              dot={false}
+              name="Theta"
+              connectNulls={true}
+              isAnimationActive={false}
+            />
+          )}
+          {selectedGreeks.vega && (
+            <Line
+              type="monotone"
+              dataKey="vega"
+              stroke={greekConfig.vega.color}
+              strokeWidth={2}
+              dot={false}
+              name="Vega"
+              connectNulls={true}
+              isAnimationActive={false}
+            />
+          )}
+        </LineChart>
+      </ResponsiveContainer>
+
+      {/* Current price legend */}
+      {currentPrice && (
+        <div className="mt-2 flex items-center justify-center gap-2 text-xs">
+          <span className="inline-flex items-center gap-1.5">
+            <span className="w-2 h-2 rounded-full bg-primary"></span>
+            <span className="text-primary font-semibold">${currentPrice.toFixed(2)}</span>
+          </span>
+          <span className="text-muted-foreground">Current Price</span>
+        </div>
+      )}
+
+    </div>
+  );
+});
+
 export default function GreeksVisualization({
   chartData,
   marketData,
-  zoomRange,
+  zoomStore,
 }: GreeksVisualizationProps) {
+  // Lags the P/L chart during a pan so the chart under the cursor stays responsive
+  const zoomRange = useDeferredValue(useZoomRange(zoomStore));
   const [selectedGreeks, setSelectedGreeks] = useState<SelectedGreeks>({
     delta: true,
     gamma: true,
@@ -147,154 +310,7 @@ export default function GreeksVisualization({
       )}
 
       {selectedCount > 0 && (
-        <div className="bg-card border rounded-lg p-4">
-          <ResponsiveContainer width="100%" height={400}>
-            <LineChart
-              data={visibleChartData}
-              margin={{ top: 10, right: 10, left: 10, bottom: 20 }}
-            >
-              <CartesianGrid strokeDasharray="3 3" stroke="#8a8a8a" opacity={0.2} />
-              <XAxis
-                dataKey="price"
-                type="number"
-                domain={['dataMin', 'dataMax']}
-                tickFormatter={(value) => `$${Math.round(value)}`}
-                tick={{ fontSize: 10, fill: '#8a8a8a' }}
-                axisLine={{ stroke: '#8a8a8a', opacity: 0.4 }}
-                tickLine={{ stroke: '#8a8a8a', opacity: 0.4 }}
-              />
-              <YAxis
-                tick={{ fontSize: 10, fill: '#8a8a8a' }}
-                axisLine={{ stroke: '#8a8a8a', opacity: 0.4 }}
-                tickLine={{ stroke: '#8a8a8a', opacity: 0.4 }}
-                width={40}
-              />
-              <Tooltip
-                cursor={{ stroke: '#8a8a8a', strokeWidth: 1, strokeDasharray: '4 4' }}
-                isAnimationActive={false}
-                content={({ active, payload, label }) => {
-                  if (active && payload && payload.length) {
-                    return (
-                      <div className="bg-popover border border-border text-popover-foreground rounded-lg p-3 shadow-lg">
-                        <div className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1 text-sm">
-                          <span className="text-muted-foreground">Price:</span>
-                          <span className="text-right font-medium">
-                            ${Number.isInteger(label) ? label : (label as number).toFixed(2)}
-                          </span>
-                          {payload.map((entry, index) => (
-                            <Fragment key={index}>
-                              <span className="text-muted-foreground">{entry.name}:</span>
-                              <span
-                                className="text-right font-medium"
-                                style={{ color: entry.color }}
-                              >
-                                {entry.value !== null && entry.value !== undefined
-                                  ? (entry.value as number).toFixed(4)
-                                  : 'N/A'}
-                              </span>
-                            </Fragment>
-                          ))}
-                        </div>
-                      </div>
-                    );
-                  }
-                  return null;
-                }}
-              />
-
-              {/* Current price dotted vertical line */}
-              {currentPrice && (
-                <>
-                  <ReferenceLine
-                    x={currentPrice}
-                    stroke="#3b82f6"
-                    strokeWidth={1}
-                    strokeDasharray="4 2"
-                    label={{
-                      value: `$${currentPrice.toFixed(2)}`,
-                      position: 'insideBottomLeft',
-                      fill: '#3b82f6',
-                      fontSize: 11,
-                      fontWeight: 600,
-                      dy: -5
-                    }}
-                  />
-                  {/* Accent dot on x-axis */}
-                  <ReferenceDot
-                    x={currentPrice}
-                    y={0}
-                    r={3}
-                    fill="#3b82f6"
-                    stroke="#fff"
-                    strokeWidth={2}
-                  />
-                </>
-              )}
-
-              {/* Render selected Greeks */}
-              {selectedGreeks.delta && (
-                <Line
-                  type="monotone"
-                  dataKey="delta"
-                  stroke={greekConfig.delta.color}
-                  strokeWidth={2}
-                  dot={false}
-                  name="Delta"
-                  connectNulls={true}
-                  isAnimationActive={false}
-                />
-              )}
-              {selectedGreeks.gamma && (
-                <Line
-                  type="monotone"
-                  dataKey="gamma"
-                  stroke={greekConfig.gamma.color}
-                  strokeWidth={2}
-                  dot={false}
-                  name="Gamma"
-                  connectNulls={true}
-                  isAnimationActive={false}
-                />
-              )}
-              {selectedGreeks.theta && (
-                <Line
-                  type="monotone"
-                  dataKey="theta"
-                  stroke={greekConfig.theta.color}
-                  strokeWidth={2}
-                  dot={false}
-                  name="Theta"
-                  connectNulls={true}
-                  isAnimationActive={false}
-                />
-              )}
-              {selectedGreeks.vega && (
-                <Line
-                  type="monotone"
-                  dataKey="vega"
-                  stroke={greekConfig.vega.color}
-                  strokeWidth={2}
-                  dot={false}
-                  name="Vega"
-                  connectNulls={true}
-                  isAnimationActive={false}
-                />
-              )}
-            </LineChart>
-          </ResponsiveContainer>
-
-          {/* Current price legend */}
-          {currentPrice && (
-            <div className="mt-2 flex items-center justify-center gap-2 text-xs">
-              <span className="inline-flex items-center gap-1.5">
-                <span className="w-2 h-2 rounded-full bg-primary"></span>
-                <span className="text-primary font-semibold">${currentPrice.toFixed(2)}</span>
-              </span>
-              <span className="text-muted-foreground">Current Price</span>
-            </div>
-          )}
-
-        </div>
+        <GreeksLineChart data={visibleChartData} selectedGreeks={selectedGreeks} currentPrice={currentPrice} />
       )}
 
       {/* Educational Guide */}

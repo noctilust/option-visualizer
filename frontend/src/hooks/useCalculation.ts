@@ -7,7 +7,11 @@ import type {
   PortfolioGreeks,
   MarketData,
   CalculateResponse,
+  ProbabilityMetrics,
+  SellerMetrics,
+  IvScenarioBase,
 } from '../types';
+import { createStore, type Store } from '../utils/store';
 
 const API_BASE = import.meta.env.VITE_API_URL || '';
 
@@ -15,6 +19,7 @@ interface UseCalculationProps {
   symbol: string;
   marketData: MarketData | null;
   setMarketData: (data: MarketData | null) => void;
+  profitTargetPct?: number;
 }
 
 interface UseCalculationReturn {
@@ -41,6 +46,12 @@ interface UseCalculationReturn {
   setEvalDaysFromNow: (days: number | null) => void;
   maxDaysToExpiration: number | null;
   precomputedDates: Record<number, number[]> | null;
+  probabilityMetrics: ProbabilityMetrics | null;
+  sellerMetrics: SellerMetrics | null;
+  ivShiftPct: number;
+  setIvShiftPct: (pct: number) => void;
+  ivPreviewStore: Store<number>;
+  ivScenarioBase: IvScenarioBase | null;
   uploadResetKey: number;
   handleFileSelect: (file: File | null) => Promise<void>;
   handleManualEntry: () => void;
@@ -75,10 +86,16 @@ function getDefaultExpiration(): string {
 
 export const DEFAULT_EXPIRATION = getDefaultExpiration();
 
+/** Credit field value for a market credit (dollars; negative = debit). */
+export function creditFieldFromMarket(netCredit: number): { credit: string; isDebit: boolean } {
+  return { credit: Math.abs(netCredit).toFixed(2), isDebit: netCredit < 0 };
+}
+
 export function useCalculation({
   symbol,
   marketData,
   setMarketData,
+  profitTargetPct = 50,
 }: UseCalculationProps): UseCalculationReturn {
   const [credit, setCredit] = useState('');
   const [isDebit, setIsDebit] = useState(false);
@@ -105,6 +122,22 @@ export function useCalculation({
   const [evalDaysFromNow, setEvalDaysFromNow] = useState<number | null>(0);
   const [maxDaysToExpiration, setMaxDaysToExpiration] = useState<number | null>(null);
   const [precomputedDates, setPrecomputedDates] = useState<Record<number, number[]> | null>(null);
+
+  // Seller metrics and IV scenario (percent change applied to pre-expiration curves)
+  const [probabilityMetrics, setProbabilityMetrics] = useState<ProbabilityMetrics | null>(null);
+  const [sellerMetrics, setSellerMetrics] = useState<SellerMetrics | null>(null);
+  const [ivShiftPct, setCommittedIvShiftPct] = useState(0);
+  // Live slider value; the chart previews it client-side until the recalculation lands
+  const [ivPreviewStore] = useState(() => createStore(0));
+  const [ivScenarioBase, setIvScenarioBase] = useState<IvScenarioBase | null>(null);
+
+  const setIvShiftPct = useCallback((pct: number) => {
+    ivPreviewStore.set(pct);
+    setCommittedIvShiftPct(pct);
+  }, [ivPreviewStore]);
+
+  // Strategy fingerprint whose credit was already filled from market quotes
+  const autoFilledCreditRef = useRef<string | null>(null);
 
   // Calculation in-progress guard to prevent concurrent calls
   const calculationInProgressRef = useRef(false);
@@ -192,6 +225,11 @@ export function useCalculation({
     setIsDebit(false);
     setPositions([]);
     setChartData([]);
+    setProbabilityMetrics(null);
+    setSellerMetrics(null);
+    setIvShiftPct(0);
+    setIvScenarioBase(null);
+    autoFilledCreditRef.current = null;
     setError(null);
     setUploadResetKey(prev => prev + 1);
     toast('Strategy cleared', { icon: '🔄' });
@@ -210,6 +248,11 @@ export function useCalculation({
     }
     const abortController = new AbortController();
     abortControllerRef.current = abortController;
+
+    const strategyKey = `${symbol.toUpperCase()}::${positions
+      .map(p => `${p.qty}-${p.strike}-${p.type}-${p.expiration}`)
+      .sort()
+      .join('|')}`;
 
     const calculatePL = async () => {
       // Check if this request was cancelled before it started
@@ -250,10 +293,14 @@ export function useCalculation({
           use_theoretical_pricing?: boolean;
           eval_days_from_now?: number;
           precompute_dates?: boolean;
+          iv_shift: number;
+          profit_target_pct: number;
         } = {
           positions: positions,
           credit: creditValue,
           skip_greeks_curve: !showGreeks,
+          iv_shift: ivShiftPct / 100,
+          profit_target_pct: profitTargetPct,
         };
 
         // Add Black-Scholes parameters if symbol is provided
@@ -277,19 +324,17 @@ export function useCalculation({
           skip_greeks_curve: requestBody.skip_greeks_curve,
           symbol: requestBody.symbol,
           use_theoretical_pricing: requestBody.use_theoretical_pricing,
-          precompute_dates: requestBody.precompute_dates
+          precompute_dates: requestBody.precompute_dates,
+          iv_shift: requestBody.iv_shift,
+          profit_target_pct: requestBody.profit_target_pct,
         });
 
-        // Check if request is already in progress or cached
-        if (requestCacheRef.current.has(cacheKey)) {
-          console.log('💾 Cache hit - reusing existing request');
-          const cachedPromise = requestCacheRef.current.get(cacheKey)!;
-          const data = await cachedPromise;
-
-          // Update state with cached data
+        const applyResponse = (data: CalculateResponse) => {
           setChartData(data.data || []);
           setGreeksData(data.positions_with_greeks || null);
           setPortfolioGreeks(data.portfolio_greeks || null);
+          setProbabilityMetrics(data.probability_metrics || null);
+          setSellerMetrics(data.seller_metrics || null);
           if (data.market_data) {
             setMarketData(data.market_data);
           }
@@ -299,6 +344,28 @@ export function useCalculation({
           if (data.precomputed_dates) {
             setPrecomputedDates(data.precomputed_dates);
           }
+          const riskFreeRate = data.market_data?.risk_free_rate;
+          setIvScenarioBase(data.scenario_legs && riskFreeRate !== undefined
+            ? { positions, legs: data.scenario_legs, ivShiftPct: Math.round((data.iv_shift ?? 0) * 100), riskFreeRate }
+            : null);
+
+          // Pre-fill an empty credit field once per strategy from the market mid
+          const marketCredit = data.seller_metrics?.market_credit;
+          if (marketCredit && credit === '' && autoFilledCreditRef.current !== strategyKey) {
+            autoFilledCreditRef.current = strategyKey;
+            const filled = creditFieldFromMarket(marketCredit.mid);
+            setCredit(filled.credit);
+            setIsDebit(filled.isDebit);
+          }
+        };
+
+        // Check if request is already in progress or cached
+        if (requestCacheRef.current.has(cacheKey)) {
+          console.log('💾 Cache hit - reusing existing request');
+          const cachedPromise = requestCacheRef.current.get(cacheKey)!;
+          const data = await cachedPromise;
+
+          applyResponse(data);
 
           console.log('✅ Cache data applied');
           setLoadingStates({ chart: false, greeks: false });
@@ -340,26 +407,7 @@ export function useCalculation({
         // Await the request
         const data = await requestPromise;
 
-        setChartData(data.data || []);
-
-        // Set Greeks data if available
-        setGreeksData(data.positions_with_greeks || null);
-        setPortfolioGreeks(data.portfolio_greeks || null);
-
-        // Also set market data from calculation response if available
-        if (data.market_data) {
-          setMarketData(data.market_data);
-        }
-
-        // Set max days to expiration for the date slider
-        if (data.max_days_to_expiration !== undefined) {
-          setMaxDaysToExpiration(data.max_days_to_expiration);
-        }
-
-        // Store pre-computed date curves for client-side interpolation
-        if (data.precomputed_dates) {
-          setPrecomputedDates(data.precomputed_dates);
-        }
+        applyResponse(data);
 
         console.log('✅ State updated - chartData length:', data.data?.length || 0);
 
@@ -411,7 +459,7 @@ export function useCalculation({
     return () => clearTimeout(timeoutId);
     // Note: evalDaysFromNow is excluded - slider changes use precomputed_dates client-side
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [positions, credit, isDebit, symbol, useTheoreticalPricing, showGreeks, arePositionsValid]);
+  }, [positions, credit, isDebit, symbol, useTheoreticalPricing, showGreeks, arePositionsValid, ivShiftPct, profitTargetPct]);
 
   return {
     positions,
@@ -437,6 +485,12 @@ export function useCalculation({
     setEvalDaysFromNow,
     maxDaysToExpiration,
     precomputedDates,
+    probabilityMetrics,
+    sellerMetrics,
+    ivShiftPct,
+    setIvShiftPct,
+    ivPreviewStore,
+    ivScenarioBase,
     uploadResetKey,
     handleFileSelect,
     handleManualEntry,

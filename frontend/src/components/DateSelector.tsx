@@ -4,26 +4,38 @@ interface DateSelectorProps {
   evalDaysFromNow: number | null;
   setEvalDaysFromNow: (days: number | null) => void;
   maxDaysToExpiration: number | null;
+  /** Days-to-expiration at which the trade is managed (e.g. 21); adds a preset and slider marker */
+  managementDte?: number;
 }
 
 export default function DateSelector({
   evalDaysFromNow,
   setEvalDaysFromNow,
   maxDaysToExpiration,
+  managementDte,
 }: DateSelectorProps) {
   // If no max days available, don't render
   if (maxDaysToExpiration === null || maxDaysToExpiration <= 0) {
     return null;
   }
 
+  const managementDay = managementDte !== undefined && managementDte > 0 && managementDte < maxDaysToExpiration
+    ? maxDaysToExpiration - managementDte
+    : null;
+
   // Calculate preset buttons - shorter labels for compact design
-  const presets = [
+  const presets: { label: string; days: number | null }[] = [
     { label: 'Today', days: 0 },
     { label: '1W', days: 7 },
     { label: '2W', days: 14 },
     { label: '1M', days: 30 },
     { label: 'Exp', days: null },
-  ].filter(preset => preset.days === null || preset.days <= maxDaysToExpiration);
+  ].filter(preset => preset.days === null || (preset.days <= maxDaysToExpiration && preset.days !== managementDay));
+
+  if (managementDay !== null) {
+    const insertAt = presets.findIndex(p => p.days === null || p.days > managementDay);
+    presets.splice(insertAt, 0, { label: `${managementDte} DTE`, days: managementDay });
+  }
 
   // Get short display text for current selection
   const getDisplayText = () => {
@@ -65,7 +77,17 @@ export default function DateSelector({
         </div>
 
         {/* Slider - grows to fill space */}
-        <div className="flex-1 min-w-[120px]">
+        <div className="flex-1 min-w-[120px] relative">
+          {managementDay !== null && (
+            <div
+              className="absolute -top-3 -translate-x-1/2 text-[10px] leading-none text-amber-600 dark:text-amber-400 pointer-events-none whitespace-nowrap"
+              style={{ left: `${(managementDay / maxDaysToExpiration) * 100}%` }}
+              data-testid="management-dte-marker"
+              title={`Manage at ${managementDte} days to expiration`}
+            >
+              ▼ {managementDte} DTE
+            </div>
+          )}
           <input
             type="range"
             min="0"
@@ -92,7 +114,9 @@ export default function DateSelector({
               ? 'Show P/L at expiration'
               : preset.days === 0
                 ? 'Show P/L today'
-                : `Show P/L in ${preset.days} days`;
+                : preset.days === managementDay
+                  ? `Show P/L at ${managementDte} days to expiration`
+                  : `Show P/L in ${preset.days} days`;
 
             return (
               <button

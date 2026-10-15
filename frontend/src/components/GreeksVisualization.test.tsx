@@ -3,6 +3,7 @@ import { render, screen } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import type { ChartDataPoint } from '../types';
 import GreeksVisualization from './GreeksVisualization';
+import { createZoomStore } from '../hooks/useChartZoom';
 
 vi.mock('recharts', async () => {
   const actual = await vi.importActual<typeof import('recharts')>('recharts');
@@ -30,7 +31,7 @@ const chartData: ChartDataPoint[] = Array.from({ length: 101 }, (_, index) => ({
 describe('GreeksVisualization stock-price range', () => {
   it('uses the same adaptive price window as P/L Analysis', () => {
     const adaptiveRangeProps = {
-      zoomRange: { startIndex: 36, endIndex: 65 },
+      zoomStore: createZoomStore({ startIndex: 36, endIndex: 65 }),
     };
 
     render(

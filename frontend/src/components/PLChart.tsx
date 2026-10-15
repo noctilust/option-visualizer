@@ -9,18 +9,30 @@ import {
   Tooltip,
   ResponsiveContainer,
   ReferenceLine,
-  ReferenceDot,
+  ReferenceArea,
 } from 'recharts';
-import { Plus, Minus, RotateCcw, TrendingUp, TrendingDown, Circle } from 'lucide-react';
-import type { ChartDataPoint, Position, MarketData, ZoomRange, BreakevenPoint } from '../types';
-import { withProfitLossSegments } from './plChartData';
+import { Plus, Minus, RotateCcw, TrendingUp, TrendingDown, Circle, Target } from 'lucide-react';
+import type {
+  ChartDataPoint,
+  Position,
+  MarketData,
+  ProbabilityMetrics,
+  SellerMetrics,
+  ManagementSettings,
+  IvScenarioBase,
+} from '../types';
+import { ivScenarioAdjustment } from '../utils/ivScenario';
+import { createStore, useStore, type Store } from '../utils/store';
+import { withProfitLossSegments, priceRangesAtOrAbove, priceAxisTicks, findBreakevenPrices, plYDomain } from './plChartData';
+import PLChartMarkers, { type PLChartColors } from './PLChartMarkers';
+import { formatDollars } from '../utils/format';
+import { useZoomRange, type ZoomStore } from '../hooks/useChartZoom';
 
 interface PLChartProps {
   chartData: ChartDataPoint[];
   positions: Position[];
   marketData: MarketData | null;
-  zoomRange: ZoomRange;
-  xAxisTicks: number[];
+  zoomStore: ZoomStore;
   isDark: boolean;
   chartContainerRef: RefObject<HTMLDivElement | null>;
   onZoomIn: () => void;
@@ -32,14 +44,23 @@ interface PLChartProps {
   onMouseLeave: () => void;
   evalDaysFromNow?: number | null;
   precomputedDates?: Record<number, number[]> | null;
+  probabilityMetrics?: ProbabilityMetrics | null;
+  sellerMetrics?: SellerMetrics | null;
+  management?: ManagementSettings;
+  /** Net credit in dollars (negative for a debit) */
+  netCredit?: number;
+  /** Live IV slider value (percent) to preview against the priced curves */
+  ivPreviewStore?: Store<number>;
+  ivScenarioBase?: IvScenarioBase | null;
 }
+
+const NO_IV_PREVIEW = createStore(0);
 
 export default function PLChart({
   chartData,
   positions,
   marketData,
-  zoomRange,
-  xAxisTicks,
+  zoomStore,
   isDark,
   chartContainerRef,
   onZoomIn,
@@ -51,10 +72,19 @@ export default function PLChart({
   onMouseLeave,
   evalDaysFromNow,
   precomputedDates,
+  probabilityMetrics = null,
+  sellerMetrics = null,
+  management,
+  netCredit = 0,
+  ivPreviewStore = NO_IV_PREVIEW,
+  ivScenarioBase = null,
 }: PLChartProps) {
+  const zoomRange = useZoomRange(zoomStore);
+  const ivPreviewPct = useStore(ivPreviewStore);
+
   // Theme-aware chart palette aligned with the neutral design tokens
   // (SVG attributes can't resolve CSS vars, so hex values are used here)
-  const chartColors = useMemo(() => ({
+  const chartColors = useMemo((): PLChartColors & { axis: string } => ({
     grid: isDark ? '#3a3a3a' : '#e4e4e4',
     gridDashed: isDark ? '#525252' : '#a3a3a3',
     axis: isDark ? '#3a3a3a' : '#d4d4d4',
@@ -65,21 +95,7 @@ export default function PLChart({
     accent: isDark ? '#60a5fa' : '#3b82f6',
   }), [isDark]);
 
-  // Calculate breakeven points
-  const breakevenPoints = useMemo((): BreakevenPoint[] => {
-    if (!chartData.length) return [];
-    const points: BreakevenPoint[] = [];
-    for (let i = 0; i < chartData.length - 1; i++) {
-      const p1 = chartData[i];
-      const p2 = chartData[i + 1];
-      if ((p1.pl >= 0 && p2.pl < 0) || (p1.pl < 0 && p2.pl >= 0)) {
-        // Linear interpolation for more accurate x position
-        const x = p1.price + (p2.price - p1.price) * ((0 - p1.pl) / (p2.pl - p1.pl));
-        points.push({ x, y: 0 });
-      }
-    }
-    return points;
-  }, [chartData]);
+  const breakevenPrices = useMemo(() => findBreakevenPrices(chartData), [chartData]);
 
   // Client-side interpolation: get P/L values for the selected date from precomputed data
   // Returns null when evalDaysFromNow is null (Expiration mode) - we don't show the date line at expiration
@@ -129,6 +145,24 @@ export default function PLChart({
     return lowerPL.map((pl, i) => pl + (upperPL[i] - pl) * ratio);
   }, [evalDaysFromNow, precomputedDates]);
 
+  // Date curve shifted to the live IV slider value until the server reprices it
+  const datePL = useMemo(() => {
+    if (evalDaysFromNow === null || evalDaysFromNow === undefined) return null;
+    const base = interpolatedPLAtDate
+      ?? (chartData.length && chartData.every(d => d.pl_at_date !== undefined) ? chartData.map(d => d.pl_at_date!) : null);
+    if (!base || !ivScenarioBase || ivPreviewPct === ivScenarioBase.ivShiftPct) return base;
+    const adjustment = ivScenarioAdjustment(
+      chartData.map(d => d.price),
+      ivScenarioBase.positions,
+      ivScenarioBase.legs,
+      evalDaysFromNow,
+      ivScenarioBase.riskFreeRate,
+      ivScenarioBase.ivShiftPct / 100,
+      ivPreviewPct / 100,
+    );
+    return base.map((pl, i) => pl + adjustment[i]);
+  }, [evalDaysFromNow, interpolatedPLAtDate, chartData, ivScenarioBase, ivPreviewPct]);
+
   // Check if we should show the pl_at_date line
   // Only show when evalDaysFromNow is set (not null/expiration) and we have data
   const hasPLAtDate = useMemo(() => {
@@ -154,9 +188,7 @@ export default function PLChart({
       const globalIdx = start + idx;
       const plAtDate = isExpirationMode
         ? undefined
-        : (interpolatedPLAtDate
-            ? interpolatedPLAtDate[globalIdx]
-            : d.pl_at_date);
+        : (datePL ? datePL[globalIdx] : d.pl_at_date);
 
       return {
         ...d,
@@ -166,34 +198,50 @@ export default function PLChart({
     });
 
     return withProfitLossSegments(points);
-  }, [chartData, zoomRange, interpolatedPLAtDate, evalDaysFromNow]);
+  }, [chartData, zoomRange, datePL, evalDaysFromNow]);
 
-  
-  // Memoize YAxis domain calculation for better performance
+  const xAxisTicks = useMemo(() => {
+    if (!chartData.length) return [];
+    const end = zoomRange.endIndex || chartData.length - 1;
+    return priceAxisTicks(chartData[zoomRange.startIndex]?.price ?? NaN, chartData[end]?.price ?? NaN);
+  }, [chartData, zoomRange]);
+
+  // Management levels only apply to credit trades with a bounded max profit
+  const metricsMaxProfit = probabilityMetrics ? probabilityMetrics.max_profit : undefined;
+  const profitTargetPL = useMemo(() => {
+    if (!management || netCredit <= 0 || metricsMaxProfit === null || metricsMaxProfit === undefined || metricsMaxProfit <= 0) {
+      return null;
+    }
+    return metricsMaxProfit * management.profitTargetPct / 100;
+  }, [management, netCredit, metricsMaxProfit]);
+
+  const stopLossPL = management && netCredit > 0 ? -management.stopMultiple * netCredit : null;
+  const expectedMove = sellerMetrics?.expected_move ?? null;
+
+  // Price ranges where the selected date's curve is at or above the profit target
+  const targetZones = useMemo(() => {
+    if (profitTargetPL === null || !chartData.length) return null;
+    const isExpirationMode = evalDaysFromNow === null || evalDaysFromNow === undefined;
+    const curve = chartData.map((d, i) => ({
+      price: d.price,
+      value: isExpirationMode
+        ? d.pl
+        : (datePL ? datePL[i] : d.pl_at_date ?? d.theoretical_pl ?? d.pl),
+    }));
+    return priceRangesAtOrAbove(curve, profitTargetPL);
+  }, [profitTargetPL, chartData, evalDaysFromNow, datePL]);
+
+  // Fit the visible curves; the stop line is hidden when it falls outside rather
+  // than stretching the axis and flattening the profit zone
   const yAxisDomain = useMemo((): [number, number] => {
-    if (!visibleChartData.length) return [-100, 100];
-
-    // Include both pl and pl_at_date in domain calculation
-    const allValues: number[] = [];
+    const values: number[] = [];
     visibleChartData.forEach(d => {
-      allValues.push(d.pl);
-      if (d.pl_at_date !== undefined) {
-        allValues.push(d.pl_at_date);
-      }
+      values.push(d.pl);
+      if (d.pl_at_date !== undefined) values.push(d.pl_at_date);
     });
-
-    const maxPL = Math.max(...allValues);
-    const minPL = Math.min(...allValues);
-
-    // Ensure we don't have a 0 range
-    if (maxPL === minPL) return [minPL - 100, maxPL + 100];
-
-    // Use symmetric scaling around zero for better visualization
-    const absMax = Math.max(Math.abs(maxPL), Math.abs(minPL));
-    const padding = absMax * 0.15;
-
-    return [-(absMax + padding), absMax + padding];
-  }, [visibleChartData]);
+    if (profitTargetPL !== null) values.push(profitTargetPL);
+    return plYDomain(values);
+  }, [visibleChartData, profitTargetPL]);
 
   // Create a strike price map for O(1) tooltip lookups
   const strikePositionMap = useMemo(() => {
@@ -208,15 +256,24 @@ export default function PLChart({
     return map;
   }, [positions]);
 
-  // Calculate max profit/loss for summary
-  const { maxProfit, maxLoss } = useMemo(() => {
+  // Max profit/loss: exact (with unlimited detection) from the backend, else the plotted range
+  const { maxProfit, maxLoss } = useMemo((): { maxProfit: number | null; maxLoss: number | null } => {
+    if (probabilityMetrics) {
+      return { maxProfit: probabilityMetrics.max_profit, maxLoss: probabilityMetrics.max_loss };
+    }
     if (!chartData.length) return { maxProfit: 0, maxLoss: 0 };
     const profits = chartData.map(d => d.pl);
     return {
       maxProfit: Math.max(...profits),
       maxLoss: Math.min(...profits),
     };
-  }, [chartData]);
+  }, [chartData, probabilityMetrics]);
+
+  const dateCurveLabel = evalDaysFromNow === null || evalDaysFromNow === undefined
+    ? 'at expiration'
+    : evalDaysFromNow === 0
+      ? 'today'
+      : `in ${evalDaysFromNow} days`;
 
   return (
     <>
@@ -227,15 +284,15 @@ export default function PLChart({
           <div className="flex items-center gap-1.5 md:gap-2">
             <TrendingUp className="w-4 h-4 text-positive" aria-hidden="true" />
             <span className="text-xs md:text-sm text-muted-foreground">Max Profit:</span>
-            <span className={`text-sm md:text-base font-semibold tabular-nums ${maxProfit > 0 ? 'text-positive' : 'text-muted-foreground'}`}>
-              {maxProfit === Infinity ? 'Unlimited' : `$${Math.round(maxProfit).toLocaleString()}`}
+            <span className={`text-sm md:text-base font-semibold tabular-nums ${maxProfit === null || maxProfit > 0 ? 'text-positive' : 'text-muted-foreground'}`}>
+              {formatDollars(maxProfit)}
             </span>
           </div>
           <div className="flex items-center gap-1.5 md:gap-2">
             <TrendingDown className="w-4 h-4 text-negative" aria-hidden="true" />
             <span className="text-xs md:text-sm text-muted-foreground">Max Loss:</span>
-            <span className={`text-sm md:text-base font-semibold tabular-nums ${maxLoss < 0 ? 'text-negative' : 'text-muted-foreground'}`}>
-              {maxLoss === -Infinity ? 'Unlimited' : `$${Math.round(maxLoss).toLocaleString()}`}
+            <span className={`text-sm md:text-base font-semibold tabular-nums ${maxLoss === null || maxLoss < 0 ? 'text-negative' : 'text-muted-foreground'}`}>
+              {formatDollars(maxLoss)}
             </span>
           </div>
         </div>
@@ -264,8 +321,32 @@ export default function PLChart({
             <div className="w-3 h-3 rounded-full bg-primary border-2 border-card" />
             <span className="text-muted-foreground">Current Price</span>
           </div>
+          {expectedMove && (
+            <div className="flex items-center gap-1.5">
+              <div className="w-4 h-3 rounded-sm bg-primary/15 border border-primary/30" />
+              <span className="text-muted-foreground">Expected Move</span>
+            </div>
+          )}
         </div>
       </div>
+
+      {profitTargetPL !== null && management && targetZones && (
+        <div className="flex items-center gap-2 mb-3 text-xs md:text-sm text-muted-foreground" data-testid="target-zone">
+          <Target className="w-4 h-4 text-positive shrink-0" aria-hidden="true" />
+          {targetZones.length > 0 ? (
+            <span>
+              {management.profitTargetPct}% target ({formatDollars(profitTargetPL)}) is reached {dateCurveLabel} with the stock between{' '}
+              <span className="font-medium text-foreground tabular-nums">
+                {targetZones.map(z => `$${z.low.toFixed(2)}–$${z.high.toFixed(2)}`).join(' or ')}
+              </span>
+            </span>
+          ) : (
+            <span>
+              {management.profitTargetPct}% target ({formatDollars(profitTargetPL)}) is not reached {dateCurveLabel} at any price. Move the date slider later.
+            </span>
+          )}
+        </div>
+      )}
 
       {/* Compact legend for mobile */}
       <div className="flex md:hidden flex-wrap items-center justify-center gap-3 mb-3 text-[10px]">
@@ -289,7 +370,7 @@ export default function PLChart({
 
       <div
         ref={chartContainerRef}
-        className="h-[300px] md:h-[420px] w-full select-none touch-pan-y"
+        className="h-[300px] md:h-[420px] w-full select-none touch-pan-y data-dragging:[&_.recharts-wrapper]:pointer-events-none"
         style={{ cursor: 'grab' }}
         onMouseDown={onMouseDown}
         onMouseMove={onMouseMove}
@@ -302,18 +383,6 @@ export default function PLChart({
             margin={{ top: 20, right: 0, left: 0, bottom: 10 }}
           >
             <CartesianGrid stroke={chartColors.grid} vertical={false} />
-
-            
-            {/* Vertical grid lines at even prices with lighter gray */}
-            {xAxisTicks.map((tick, index) => (
-              <ReferenceLine
-                key={`grid-${index}`}
-                x={tick}
-                stroke={chartColors.gridDashed}
-                strokeDasharray="3 3"
-                strokeOpacity={0.4}
-              />
-            ))}
             <XAxis
               dataKey="price"
               type="number"
@@ -403,177 +472,62 @@ export default function PLChart({
                 return null;
               }}
             />
-            <ReferenceLine y={0} stroke={chartColors.zero} strokeWidth={1} />
-            {/* Price labels just above the zero line */}
-            {xAxisTicks.map((tick, index) => (
-              <ReferenceDot
-                key={`price-label-${index}`}
-                x={tick}
-                y={0}
-                r={0}
+            {expectedMove && (
+              <ReferenceArea
+                x1={expectedMove.lower}
+                x2={expectedMove.upper}
+                fill={chartColors.accent}
+                fillOpacity={0.07}
+                stroke={chartColors.accent}
+                strokeOpacity={0.25}
+                strokeDasharray="2 4"
+                ifOverflow="hidden"
                 label={{
-                  content: ({ viewBox }) => {
-                    const { x, y } = viewBox as { x: number; y: number };
-                    return (
-                      <text
-                        x={x}
-                        y={y - 6}
-                        textAnchor="middle"
-                        fill={chartColors.label}
-                        fontSize={11}
-                      >
-                        ${Math.round(tick)}
-                      </text>
-                    );
-                  }
+                  value: `1σ move ±$${expectedMove.amount.toFixed(2)}`,
+                  position: 'insideTop',
+                  fill: chartColors.accent,
+                  fontSize: 10,
                 }}
               />
-            ))}
-            {/* Position flag markers at strike prices */}
-            {positions.map((pos, index) => {
-              const flagText = `${pos.qty > 0 ? '+' : ''}${pos.qty}${pos.type}`;
-              return (
-                <ReferenceDot
-                  key={`strike-${index}`}
-                  x={pos.strike}
-                  y={0}
-                  r={0}
-                  label={{
-                    content: ({ viewBox }) => {
-                      const { x, y } = viewBox as { x: number; y: number };
-                      const boxWidth = flagText.length * 7 + 10;
-                      const boxHeight = 16;
-                      return (
-                        <g>
-                          {/* Small flag background */}
-                          <rect
-                            x={x - boxWidth / 2}
-                            y={y + 4}
-                            width={boxWidth}
-                            height={boxHeight}
-                            fill={isDark ? '#262626' : '#f5f5f5'}
-                            stroke={chartColors.grid}
-                            strokeWidth={1}
-                            rx={2}
-                            ry={2}
-                          />
-                          {/* Left accent bar */}
-                          <rect
-                            x={x - boxWidth / 2}
-                            y={y + 4}
-                            width={3}
-                            height={boxHeight}
-                            fill={pos.qty > 0 ? chartColors.positive : chartColors.negative}
-                            rx={2}
-                            ry={0}
-                          />
-                          {/* Flag text */}
-                          <text
-                            x={x + 2}
-                            y={y + 16}
-                            textAnchor="middle"
-                            fill={chartColors.zero}
-                            fontSize={10}
-                            fontWeight={500}
-                          >
-                            {flagText}
-                          </text>
-                        </g>
-                      );
-                    }
-                  }}
-                />
-              );
-            })}
-            {/* Breakeven points with labels */}
-            {breakevenPoints.map((point, index) => (
-              <ReferenceDot
-                key={`breakeven-${index}`}
-                x={point.x}
-                y={point.y}
-                r={5}
-                fill="#f59e0b"
-                stroke="#fff"
-                strokeWidth={2}
-                label={{
-                  content: ({ viewBox }) => {
-                    const { x, y } = viewBox as { x: number; y: number };
-                    return (
-                      <g>
-                        {/* Breakeven label background */}
-                        <rect
-                          x={x - 35}
-                          y={y - 28}
-                          width={70}
-                          height={18}
-                          fill={isDark ? '#78350f' : '#fef3c7'}
-                          stroke="#f59e0b"
-                          strokeWidth={1.5}
-                          rx={4}
-                          ry={4}
-                        />
-                        {/* Breakeven label text */}
-                        <text
-                          x={x}
-                          y={y - 16}
-                          textAnchor="middle"
-                          fill={isDark ? '#fbbf24' : '#b45309'}
-                          fontSize={10}
-                          fontWeight={600}
-                        >
-                          BE: ${point.x.toFixed(2)}
-                        </text>
-                      </g>
-                    );
-                  }
-                }}
-              />
-            ))}
-            {/* Current stock price indicator */}
-            {marketData?.current_price && (
-              <>
-                <ReferenceLine
-                  x={marketData.current_price}
-                  stroke={chartColors.accent}
-                  strokeWidth={1}
-                  strokeDasharray="4 2"
-                />
-                <ReferenceDot
-                  x={marketData.current_price}
-                  y={0}
-                  r={0}
-                  label={{
-                    content: ({ viewBox }) => {
-                      const { x, y } = viewBox as { x: number; y: number };
-                      return (
-                        <g>
-                          {/* Accent dot on x-axis */}
-                          <circle
-                            cx={x}
-                            cy={y}
-                            r={4}
-                            fill={chartColors.accent}
-                            stroke="#fff"
-                            strokeWidth={2}
-                          />
-                          {/* Price label below dot */}
-                          <text
-                            x={x}
-                            y={y + 18}
-                            textAnchor="middle"
-                            fill={chartColors.accent}
-                            fontSize={11}
-                            fontWeight={600}
-                          >
-                            ${marketData.current_price.toFixed(2)}
-                          </text>
-                        </g>
-                      );
-                    }
-                  }}
-                />
-              </>
             )}
+            {profitTargetPL !== null && management && (
+              <ReferenceLine
+                y={profitTargetPL}
+                stroke={chartColors.positive}
+                strokeDasharray="5 4"
+                strokeWidth={1.5}
+                label={{
+                  value: `${management.profitTargetPct}% target ${formatDollars(profitTargetPL)}`,
+                  position: 'insideBottomLeft',
+                  fill: chartColors.positive,
+                  fontSize: 10,
+                }}
+              />
+            )}
+            {stopLossPL !== null && management && (
+              <ReferenceLine
+                y={stopLossPL}
+                stroke={chartColors.negative}
+                strokeDasharray="5 4"
+                strokeWidth={1.5}
+                ifOverflow="hidden"
+                label={{
+                  value: `Stop ${management.stopMultiple}× credit ${formatDollars(stopLossPL)}`,
+                  position: 'insideBottomLeft',
+                  fill: chartColors.negative,
+                  fontSize: 10,
+                }}
+              />
+            )}
+            <ReferenceLine y={0} stroke={chartColors.zero} strokeWidth={1} />
+            <PLChartMarkers
+              ticks={xAxisTicks}
+              positions={positions}
+              breakevens={breakevenPrices}
+              currentPrice={marketData?.current_price ?? null}
+              colors={chartColors}
+              isDark={isDark}
+            />
             <Area
               type="linear"
               dataKey="profit"

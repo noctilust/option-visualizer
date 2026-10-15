@@ -518,8 +518,8 @@ export default function ExpirationDropdown({
                   onMouseEnter={() => schedulePreview(opt.value)}
                   onFocus={() => schedulePreview(opt.value)}
                   onClick={() => handleSelect(opt.value)}
-                  className={`w-full px-2 py-1.5 cursor-pointer flex items-center gap-2 text-left text-popover-foreground transition-colors ${
-                    isSelected ? 'bg-primary/15' : 'hover:bg-muted'
+                  className={`w-full px-2 py-1.5 cursor-pointer flex items-center gap-2 text-left transition-colors ${
+                    isSelected ? 'bg-primary text-primary-foreground' : 'text-popover-foreground hover:bg-muted'
                   }`}
                 >
                   {isSelected && (
